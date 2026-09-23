@@ -1,4 +1,4 @@
-# Client Content Automation — AI Development Loop
+# D Web Studio Content Automation — AI Development Loop
 
 ## 1. Inputs
 

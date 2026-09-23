@@ -1,4 +1,4 @@
-# Client Content Automation — Architecture
+# D Web Studio Content Automation — Architecture
 
 ## 1. Architecture Goal
 
@@ -9,7 +9,7 @@ Keep the project simple, maintainable, and easy to extend. Separate product requ
 ## 2. Current Repository Structure
 
 ```text
-client-content-automation/
+DWebStudio-content-automation/
 ├── README.md
 ├── prd.md
 ├── architecture.md

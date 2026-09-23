@@ -1,6 +1,6 @@
-# Client Content Automation
+# D Web Studio Content Automation
 
-A client-content automation project for collecting a business's marketing information and turning that information into structured Instagram content.
+A D Web Studio content automation project for collecting a business's marketing information and turning that information into structured Instagram content.
 
 ## 1. Project Purpose
 
@@ -25,7 +25,7 @@ The project uses the same documentation philosophy as the D Web Studio project:
 ## 3. Repository Structure
 
 ```text
-client-content-automation/
+DWebStudio-content-automation/
 ├── README.md
 ├── prd.md
 ├── architecture.md

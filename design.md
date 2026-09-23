@@ -1,4 +1,4 @@
-# Client Content Automation — Design System
+# D Web Studio Content Automation — Design System
 
 ## 1. Design Vision
 

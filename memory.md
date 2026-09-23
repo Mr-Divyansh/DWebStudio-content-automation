@@ -1,8 +1,8 @@
-# Client Content Automation — Project Memory
+# D Web Studio Content Automation — Project Memory
 
 ## 1. Stable Project Facts
 
-**Project repository:** `Mr-Divyansh/client-content-automation`
+**Project repository:** `Mr-Divyansh/client-content-automation` (local folder: `DWebStudio-content-automation`)
 
 **Primary content domain:** Instagram content automation.
 

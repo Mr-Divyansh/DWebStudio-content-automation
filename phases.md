@@ -1,4 +1,4 @@
-# Client Content Automation — Development Phases
+# D Web Studio Content Automation — Development Phases
 
 ## Phase 1 — Documentation Foundation
 

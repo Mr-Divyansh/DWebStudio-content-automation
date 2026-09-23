@@ -1,8 +1,8 @@
-# Client Content Automation — Product Requirements
+# D Web Studio Content Automation — Product Requirements
 
 ## 1. Project Overview
 
-Client Content Automation is intended to turn structured client marketing information into usable social-media content.
+D Web Studio Content Automation is intended to turn structured client marketing information into usable social-media content.
 
 The initial content domain is Instagram.
 

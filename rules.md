@@ -1,4 +1,4 @@
-# Client Content Automation — Development Rules
+# D Web Studio Content Automation — Development Rules
 
 ## 1. General Rules
 
