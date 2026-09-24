@@ -59,6 +59,17 @@ export async function startStandaloneServer(port = process.env.PORT || 3001) {
   });
 }
 
-if (process.argv[1] && process.argv[1].endsWith('index.ts')) {
-  startStandaloneServer();
+/**
+ * Standalone API bootstrap.
+ *
+ * IMPORTANT: importing this module must never open a listening socket, because
+ * the Vercel serverless entry (`api/index.ts`) imports `createExpressApp` from
+ * here. A listening server inside a serverless function is both wrong and
+ * resource-wasteful, so the standalone listener is now strictly opt-in via
+ * DWS_START_STANDALONE_API=true.
+ *
+ * Local development uses `npm run dev` (server.ts), which is unaffected.
+ */
+if (process.env.DWS_START_STANDALONE_API === 'true') {
+  void startStandaloneServer();
 }

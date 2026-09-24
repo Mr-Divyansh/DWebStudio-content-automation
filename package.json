@@ -8,11 +8,19 @@
     "build": "vite build",
     "start": "tsx server.ts",
     "preview": "vite preview",
-    "test": "tsx tests/run-tests.ts",
+    "test": "prisma generate --schema prisma/schema.sqlite.prisma && tsx tests/run-tests.ts",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsc --noEmit",
     "vercel-build": "prisma generate && vite build",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:generate": "prisma generate --schema prisma/schema.prisma",
+    "db:push": "prisma db push --schema prisma/schema.prisma",
+    "db:migrate": "prisma migrate deploy --schema prisma/schema.prisma",
+    "db:migrate:dev": "prisma migrate dev --schema prisma/schema.prisma",
+    "db:studio": "prisma studio --schema prisma/schema.prisma",
+    "dev:db:generate": "prisma generate --schema prisma/schema.sqlite.prisma",
+    "dev:db:push": "prisma db push --schema prisma/schema.sqlite.prisma",
+    "dev:db:studio": "prisma studio --schema prisma/schema.sqlite.prisma"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -44,6 +52,9 @@
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma"
   },
   "engines": {
     "node": ">=20"

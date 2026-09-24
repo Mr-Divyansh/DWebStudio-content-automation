@@ -1,18 +1,15 @@
-// Prisma datasource for PRODUCTION (Vercel / PostgreSQL).
+// LOCAL DEVELOPMENT schema (SQLite).
 //
-// Why postgresql is the committed default: Prisma does not allow env() in the
-// `provider` argument (P1012), so the committed schema must name a concrete
-// provider. Production needs a persistent, serverless-safe database, and the
-// local SQLite file `prisma/dev.db` is neither persistent nor deployable.
+// This file is IDENTICAL to prisma/schema.prisma except for the datasource
+// provider. It exists because Prisma does not allow env() in the provider
+// argument, so local development can keep using the existing, git-ignored
+// prisma/dev.db while production uses PostgreSQL.
 //
-// Local development without PostgreSQL is still supported through a separate
-// schema file that is swapped in only by the `dev:*` npm scripts:
-//   prisma/schema.sqlite.prisma  (datasource provider = "sqlite")
-//
-// Nothing in this file is destructive; `prisma/dev.db` remains git-ignored and
-// existing local data is preserved.
+// Use the npm scripts: dev:db:generate, dev:db:push, dev:db:studio.
+// Never use this file for production.
+
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -49,7 +46,7 @@ model Lead {
   confidence           String          @default("LOW")
   evidence                   String?         // Stored as JSON string
   notes                      String?
-  // Autonomous agent (additive, nullable/flag-only — never deletes existing data).
+  // Autonomous agent (additive, nullable/flag-only â€” never deletes existing data).
   // aiPaused=true means a human took over this conversation: the AI must not message the lead.
   aiPaused                   Boolean         @default(false)
   doNotContact               Boolean         @default(false)
@@ -243,7 +240,7 @@ model Evidence {
   @@index([evidenceType])
 }
 
-// Phase 1 (P1) — structured record of one human-triggered public research run for a lead.
+// Phase 1 (P1) â€” structured record of one human-triggered public research run for a lead.
 // Fields are explicit columns (never one giant AI text blob) and every non-null value is backed by
 // an Evidence row carrying sourceUrl + fetchedAt + evidenceType. Nullable everywhere: "unknown"
 // stays null instead of being guessed.
@@ -304,7 +301,7 @@ model BusinessResearch {
   @@index([status])
 }
 
-// Phase 3 (P3) — deterministic, evidence-based lead qualification result.
+// Phase 3 (P3) â€” deterministic, evidence-based lead qualification result.
 // Every row is one human-triggered run; older rows are kept as history (never overwritten).
 // `reasons` is a JSON array of { ruleId, type, reason, evidenceIds[] } so every factual reason
 // is traceable to Evidence rows; no reason exists without supporting evidence.
@@ -326,7 +323,7 @@ model LeadQualification {
 }
 
 // ============================================================================
-// AUTONOMOUS AGENT FOUNDATION (additive models — nothing existing is replaced)
+// AUTONOMOUS AGENT FOUNDATION (additive models â€” nothing existing is replaced)
 // The agent reuses the existing pipeline (ResearchService -> QualificationService
 // -> LeadService.generateOutreachDraft -> ConversationAnalyzer) and only records
 // its own control state, activity, outbound log and structured learning.
@@ -460,3 +457,4 @@ model LearningEvent {
   @@index([category, status])
   @@index([leadId])
 }
+

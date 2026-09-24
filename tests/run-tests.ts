@@ -1,3 +1,5 @@
+// MUST stay first: sets DATABASE_URL before the Prisma client is constructed.
+import './env-setup.js';
 import { runImporterTests } from './importer.test.js';
 import { runAnalyzerTests } from './analyzer.test.js';
 import { runDatabaseTests } from './database.test.js';
