@@ -6,6 +6,9 @@ import { learningRouter } from './api/routes/learningRoutes.js';
 import { dashboardRouter } from './api/routes/dashboardRoutes.js';
 import { portfolioRouter } from './api/routes/portfolioRoutes.js';
 import { configRouter } from './api/routes/configRoutes.js';
+import { agentRouter } from './api/routes/agentRoutes.js';
+import { initializeMessagingProviders } from './agent/messagingProvider.js';
+import { webhookRouter } from './api/routes/webhookRoutes.js';
 import { seedDatabase } from './database/seed.js';
 
 dotenv.config();
@@ -13,7 +16,20 @@ dotenv.config();
 export function createExpressApp() {
   const app = express();
 
-  app.use(express.json({ limit: '50mb' }));
+  // Selects the messaging adapter once at startup. Defaults to dry-run unless an
+  // authorized provider is fully configured in the environment.
+  initializeMessagingProviders();
+
+  // Raw body is retained so Meta webhook signatures (X-Hub-Signature-256) can be
+  // verified against the exact bytes Meta signed. Never logged, never persisted.
+  app.use(
+    express.json({
+      limit: '50mb',
+      verify: (req, _res, buf) => {
+        (req as any).rawBody = buf;
+      },
+    }),
+  );
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   // API Routes
@@ -23,6 +39,8 @@ export function createExpressApp() {
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/portfolio', portfolioRouter);
   app.use('/api/config', configRouter);
+  app.use('/api/agent', agentRouter);
+  app.use('/api/webhooks', webhookRouter);
 
   // Health check
   app.get('/api/health', (_req, res) => {

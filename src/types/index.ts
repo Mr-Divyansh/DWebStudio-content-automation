@@ -169,6 +169,138 @@ export interface LeadQualificationItem {
   updatedAt: string;
 }
 
+/* ============================================================================
+   AUTONOMOUS AGENT TYPES
+   Mirrors server/src/agent/autonomousAgent.ts. Counters are REAL values read
+   from the database — the UI never computes or invents them.
+   ========================================================================== */
+
+export type AgentState = 'STOPPED' | 'RUNNING' | 'PAUSED';
+
+export interface AgentMessagingStatus {
+  provider: string;
+  configured: boolean;
+  label: 'CONNECTED' | 'MESSAGE_PROVIDER_NOT_CONFIGURED';
+  requirement: string | null;
+}
+
+export interface AgentStatus {
+  state: AgentState;
+  autoDm: boolean;
+  messaging: AgentMessagingStatus;
+  geminiConfigured: boolean;
+  config: {
+    maxSendsPerHour: number;
+    maxSendsPerLead: number;
+    followUpDelayHours: number;
+    tickIntervalMs: number;
+    batchSize: number;
+  };
+  counters: {
+    leadsProcessed: number;
+    messagesSent: number;
+    repliesReceived: number;
+    interested: number;
+    notInterested: number;
+    personalWork: number;
+    humanRequired: number;
+    failed: number;
+    noResponse: number;
+    closed: number;
+  };
+  currentTask: string | null;
+  lastAction: string | null;
+  nextAction: string | null;
+  startedAt: string | null;
+  updatedAt: string;
+}
+
+export interface AgentEventItem {
+  id: string;
+  type: string;
+  status: 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'HUMAN_REQUIRED';
+  message: string;
+  leadId: string | null;
+  details: string | null;
+  createdAt: string;
+  lead: { id: string; businessName: string; status: string } | null;
+}
+
+export interface OutboundMessageItem {
+  id: string;
+  leadId: string;
+  channel: string;
+  recipient: string | null;
+  body: string;
+  status: 'SENT' | 'DRY_RUN' | 'BLOCKED' | 'FAILED';
+  provider: string;
+  providerRef: string | null;
+  error: string | null;
+  createdAt: string;
+  lead: { id: string; businessName: string; status: string; aiPaused: boolean } | null;
+}
+
+export interface AgentLearningItem {
+  id: string;
+  sourceType: string;
+  category: string;
+  observation: string;
+  humanAction: string | null;
+  outcome: string | null;
+  status: 'PROPOSED' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
+  supportCount: number;
+  contradictionCount: number;
+  leadId: string | null;
+  createdAt: string;
+}
+
+export interface PricingRuleItem {
+  id: string;
+  service: string;
+  currency: string;
+  minPrice: number;
+  normalPriceMin: number;
+  normalPriceMax: number;
+  maxNegotiation: number;
+  escalationAbove: number | null;
+  active: boolean;
+  notes: string | null;
+}
+
+export interface InboundMessageItem {
+  id: string;
+  leadId: string | null;
+  channel: string;
+  provider: string;
+  providerMessageId: string;
+  senderIgSid: string;
+  body: string;
+  direction: 'INBOUND';
+  deliveryStatus: string;
+  humanTakeover: boolean;
+  error: string | null;
+  createdAt: string;
+}
+
+/** Per-capability readiness reported by /api/agent/messaging. */
+export interface MessagingCapabilities {
+  sendMessage: string;
+  receiveWebhook: string;
+  threadIdentification: string;
+  proactiveColdOutreach: string;
+}
+
+export interface MessagingSettings {
+  provider: string;
+  configured: boolean;
+  label: string;
+  requirement: string | null;
+  capabilities: MessagingCapabilities;
+  account: { status: string; authorized: boolean; reason: string };
+  webhook: { status: 'ACTIVE' | 'INACTIVE'; configured: boolean; path: string };
+  prerequisites: Array<{ item: string; status: string }>;
+}
+
 export interface MessageItem {
   id: string;
   conversationId: string;

@@ -3,6 +3,9 @@ import { runAnalyzerTests } from './analyzer.test.js';
 import { runDatabaseTests } from './database.test.js';
 import { runHtmlImporterTests } from './htmlImporter.test.js';
 import { runResearchTests } from './research.test.js';
+import { runAgentTests } from './agent.test.js';
+import { runMessagingProviderTests } from './messagingProvider.test.js';
+import { runWebhookTests } from './webhook.test.js';
 import { prisma } from '../server/src/database/client.js';
 
 async function main() {
@@ -72,6 +75,48 @@ async function main() {
   console.log('\n--- 5. PUBLIC RESEARCH PIPELINE (SAFE HTTP, WEBSITE AUDIT, EVIDENCE) ---');
   const researchResults = await runResearchTests();
   for (const r of researchResults) {
+    if (r.passed) {
+      console.log(`  [PASS] ${r.name}`);
+      if (r.message) console.log(`         -> ${r.message}`);
+      totalPassed++;
+    } else {
+      console.log(`  [FAIL] ${r.name}`);
+      if (r.message) console.log(`         -> ERROR: ${r.message}`);
+      totalFailed++;
+    }
+  }
+
+  console.log('\n--- 6. AUTONOMOUS AGENT (SAFETY GATES, PRICING, LEARNING, STATE) ---');
+  const agentResults = await runAgentTests();
+  for (const r of agentResults) {
+    if (r.passed) {
+      console.log(`  [PASS] ${r.name}`);
+      if (r.message) console.log(`         -> ${r.message}`);
+      totalPassed++;
+    } else {
+      console.log(`  [FAIL] ${r.name}`);
+      if (r.message) console.log(`         -> ERROR: ${r.message}`);
+      totalFailed++;
+    }
+  }
+
+  console.log('\n--- 7. OFFICIAL MESSAGING ADAPTER (META GRAPH API, FULLY MOCKED) ---');
+  const messagingResults = await runMessagingProviderTests();
+  for (const r of messagingResults) {
+    if (r.passed) {
+      console.log(`  [PASS] ${r.name}`);
+      if (r.message) console.log(`         -> ${r.message}`);
+      totalPassed++;
+    } else {
+      console.log(`  [FAIL] ${r.name}`);
+      if (r.message) console.log(`         -> ERROR: ${r.message}`);
+      totalFailed++;
+    }
+  }
+
+  console.log('\n--- 8. INSTAGRAM WEBHOOK, SIGNATURE VERIFICATION & REPLY CLASSIFICATION ---');
+  const webhookResults = await runWebhookTests();
+  for (const r of webhookResults) {
     if (r.passed) {
       console.log(`  [PASS] ${r.name}`);
       if (r.message) console.log(`         -> ${r.message}`);

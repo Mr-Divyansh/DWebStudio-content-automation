@@ -10,6 +10,13 @@ import {
   BusinessResearchItem,
   LeadQualificationOutcome,
   LeadQualificationItem,
+  AgentStatus,
+  AgentEventItem,
+  OutboundMessageItem,
+  AgentLearningItem,
+  PricingRuleItem,
+  InboundMessageItem,
+  MessagingSettings,
 } from '../types';
 
 export const api = {
@@ -149,6 +156,126 @@ export const api = {
   async getLeadQualifications(id: string): Promise<LeadQualificationItem[]> {
     const res = await fetch(`/api/leads/${id}/qualification`);
     if (!res.ok) throw new Error('Failed to fetch qualification history');
+    return res.json();
+  },
+
+  /* ------------------------------------------------------ Autonomous agent */
+
+  async getAgentStatus(): Promise<AgentStatus> {
+    const res = await fetch('/api/agent/status');
+    if (!res.ok) throw new Error('Failed to fetch agent status');
+    return res.json();
+  },
+
+  async startAgent(): Promise<AgentStatus> {
+    const res = await fetch('/api/agent/start', { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to start agent');
+    return res.json();
+  },
+
+  async pauseAgent(): Promise<AgentStatus> {
+    const res = await fetch('/api/agent/pause', { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to pause agent');
+    return res.json();
+  },
+
+  async stopAgent(): Promise<AgentStatus> {
+    const res = await fetch('/api/agent/stop', { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to stop agent');
+    return res.json();
+  },
+
+  async setAutoDm(enabled: boolean): Promise<AgentStatus> {
+    const res = await fetch('/api/agent/auto-dm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!res.ok) throw new Error('Failed to update AUTO DM');
+    return res.json();
+  },
+
+  async runAgentTick(): Promise<any> {
+    const res = await fetch('/api/agent/tick', { method: 'POST' });
+    if (!res.ok) throw new Error('Agent tick failed');
+    return res.json();
+  },
+
+  async getInboundMessages(limit = 30): Promise<InboundMessageItem[]> {
+    const res = await fetch(`/api/agent/inbox?limit=${limit}`);
+    if (!res.ok) throw new Error('Failed to fetch inbound messages');
+    return res.json();
+  },
+
+  /** Full provider/account/webhook readiness for the settings panel. */
+  async getMessagingSettings(): Promise<MessagingSettings> {
+    const res = await fetch('/api/agent/messaging');
+    if (!res.ok) throw new Error('Failed to fetch messaging settings');
+    return res.json();
+  },
+
+  async getAgentActivity(limit = 30): Promise<AgentEventItem[]> {
+    const res = await fetch(`/api/agent/activity?limit=${limit}`);
+    if (!res.ok) throw new Error('Failed to fetch agent activity');
+    return res.json();
+  },
+
+  async getOutboundMessages(limit = 30): Promise<OutboundMessageItem[]> {
+    const res = await fetch(`/api/agent/messages?limit=${limit}`);
+    if (!res.ok) throw new Error('Failed to fetch outbound log');
+    return res.json();
+  },
+
+  async takeOverLead(id: string): Promise<any> {
+    const res = await fetch(`/api/agent/leads/${id}/takeover`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to take over lead');
+    return res.json();
+  },
+
+  async releaseLead(id: string): Promise<any> {
+    const res = await fetch(`/api/agent/leads/${id}/release`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to release lead');
+    return res.json();
+  },
+
+  async optOutLead(id: string): Promise<any> {
+    const res = await fetch(`/api/agent/leads/${id}/opt-out`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to record opt-out');
+    return res.json();
+  },
+
+  async getAgentLearnings(limit = 50): Promise<AgentLearningItem[]> {
+    const res = await fetch(`/api/agent/learnings?limit=${limit}`);
+    if (!res.ok) throw new Error('Failed to fetch learning events');
+    return res.json();
+  },
+
+  async setLearningStatus(id: string, status: string): Promise<any> {
+    const res = await fetch(`/api/agent/learnings/${id}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) throw new Error('Failed to update learning status');
+    return res.json();
+  },
+
+  async getPricingRules(): Promise<PricingRuleItem[]> {
+    const res = await fetch('/api/agent/pricing');
+    if (!res.ok) throw new Error('Failed to fetch pricing rules');
+    return res.json();
+  },
+
+  async savePricingRule(rule: Partial<PricingRuleItem>): Promise<PricingRuleItem> {
+    const res = await fetch('/api/agent/pricing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(rule),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to save pricing rule');
+    }
     return res.json();
   },
 

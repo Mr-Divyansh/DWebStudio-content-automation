@@ -12,6 +12,8 @@ import { LeadDetailModal } from './components/leads/LeadDetailModal';
 import { ImportManager } from './components/imports/ImportManager';
 import { LearningsManager } from './components/learnings/LearningsManager';
 import { PortfolioManager } from './components/portfolio/PortfolioManager';
+import { AgentControlPanel } from './components/agent/AgentControlPanel';
+import { MessagingSettingsPanel } from './components/agent/MessagingSettingsPanel';
 import { api } from './lib/api';
 import {
   LeadItem,
@@ -174,6 +176,25 @@ export default function App() {
 
           {/* TAB 5: PORTFOLIO LIBRARY */}
           {activeTab === 'portfolio' && <PortfolioManager projects={portfolio} />}
+
+          {/* TAB 6: AUTONOMOUS AI CONTROL CENTER */}
+          {activeTab === 'agent' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-bold text-[#F4F1EA]">AI Control Center</h2>
+                <p className="text-xs text-[#8C98A9] mt-0.5">
+                  Start, pause or stop autonomous research, qualification, drafting and learning. Unusual cases
+                  escalate to you automatically.
+                </p>
+              </div>
+              <AgentControlPanel />
+
+              <div className="pt-6 mt-6 border-t border-[#1C232D]">
+                <h3 className="text-sm font-bold text-[#F4F1EA] mb-3">Messaging &amp; Conversations</h3>
+                <MessagingSettingsPanel />
+              </div>
+            </div>
+          )}
         </main>
       </div>
 

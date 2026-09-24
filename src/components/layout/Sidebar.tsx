@@ -7,6 +7,7 @@ import {
   FolderGit2,
   ShieldCheck,
   Zap,
+  Bot,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -32,6 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     { id: 'imports', label: 'Data Imports', icon: UploadCloud },
     { id: 'learnings', label: 'Sales Learnings', icon: BrainCircuit },
+    { id: 'agent', label: 'AI Control Center', icon: Bot },
     { id: 'portfolio', label: 'Portfolio Library', icon: FolderGit2 },
   ];
 
@@ -117,7 +119,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Safety Badge */}
         <div className="flex items-center gap-2 px-2 text-[11px] text-[#718096]">
           <ShieldCheck className="w-4 h-4 text-[#2F7EF2] shrink-0" />
-          <span>Human-in-the-loop: Zero auto-sending.</span>
+          <span>Human take-over always overrides the AI.</span>
         </div>
       </div>
     </aside>

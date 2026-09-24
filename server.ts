@@ -9,9 +9,15 @@ import { learningRouter } from './server/src/api/routes/learningRoutes.js';
 import { dashboardRouter } from './server/src/api/routes/dashboardRoutes.js';
 import { portfolioRouter } from './server/src/api/routes/portfolioRoutes.js';
 import { configRouter } from './server/src/api/routes/configRoutes.js';
+import { agentRouter } from './server/src/api/routes/agentRoutes.js';
+import { initializeMessagingProviders } from './server/src/agent/messagingProvider.js';
+import { webhookRouter } from './server/src/api/routes/webhookRoutes.js';
 import { seedDatabase } from './server/src/database/seed.js';
 
 dotenv.config();
+
+// Selects the messaging adapter (dry-run unless an authorized provider is configured).
+initializeMessagingProviders();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,7 +27,16 @@ async function startServer() {
   const PORT = parseInt(process.env.PORT || '3000', 10);
   const isProd = process.env.NODE_ENV === 'production';
 
-  app.use(express.json({ limit: '50mb' }));
+  // Raw body is retained so Meta webhook signatures can be verified against the
+  // exact bytes Meta signed. Never logged, never persisted.
+  app.use(
+    express.json({
+      limit: '50mb',
+      verify: (req, _res, buf) => {
+        (req as any).rawBody = buf;
+      },
+    }),
+  );
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   // API Routes
@@ -31,6 +46,8 @@ async function startServer() {
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/portfolio', portfolioRouter);
   app.use('/api/config', configRouter);
+  app.use('/api/agent', agentRouter);
+  app.use('/api/webhooks', webhookRouter);
 
   // Health check
   app.get('/api/health', (_req, res) => {

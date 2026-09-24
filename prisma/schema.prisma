@@ -34,10 +34,20 @@ model Lead {
   portfolioMatch       String          @default("NO_MATCH")
   suggestedNextAction  String?
   confidence           String          @default("LOW")
-  evidence             String?         // Stored as JSON string
-  notes                String?
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
+  evidence                   String?         // Stored as JSON string
+  notes                      String?
+  // Autonomous agent (additive, nullable/flag-only — never deletes existing data).
+  // aiPaused=true means a human took over this conversation: the AI must not message the lead.
+  aiPaused                   Boolean         @default(false)
+  doNotContact               Boolean         @default(false)
+  optOutAt                   DateTime?
+  // Instagram-scoped ID (IGSID) for the official Meta Messaging API. A @username
+  // is NOT enough: Meta only issues an IGSID to a person who messaged the business
+  // (or via an approved Meta flow), so this stays null for most researched leads.
+  instagramScopedId          String?
+  lastAgentActionAt          DateTime?
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
 
   conversations        Conversation[]
   analyses             Analysis[]
@@ -47,6 +57,10 @@ model Lead {
   learnings            Learning[]
   researchRecords      BusinessResearch[]
   qualifications       LeadQualification[]
+  agentEvents          AgentEvent[]
+  outboundMessages     OutboundMessage[]
+  learningEvents       LearningEvent[]
+  inboundMessages      InboundMessage[]
 
   @@index([status])
   @@index([intent])
@@ -296,4 +310,140 @@ model LeadQualification {
   @@index([leadId])
   @@index([status])
   @@index([createdAt])
+}
+
+// ============================================================================
+// AUTONOMOUS AGENT FOUNDATION (additive models — nothing existing is replaced)
+// The agent reuses the existing pipeline (ResearchService -> QualificationService
+// -> LeadService.generateOutreachDraft -> ConversationAnalyzer) and only records
+// its own control state, activity, outbound log and structured learning.
+// ============================================================================
+
+// Singleton control row (id is always "singleton") holding the [START/PAUSE/STOP]
+// state, AUTO DM switch, safety limits and the counters shown in the UI.
+model AgentConfig {
+  id                 String   @id @default("singleton")
+  state              String   @default("STOPPED") // STOPPED | RUNNING | PAUSED
+  autoDm             Boolean  @default(false) // OFF by default: no send adapter is connected
+  maxSendsPerHour    Int      @default(10)
+  maxSendsPerLead    Int      @default(1)
+  followUpDelayHours Int      @default(72)
+  tickIntervalMs     Int      @default(15000)
+  batchSize          Int      @default(3)
+  currentTask        String?
+  lastAction         String?
+  nextAction         String?
+  leadsProcessed     Int      @default(0)
+  messagesSent       Int      @default(0)
+  repliesReceived    Int      @default(0)
+  interested         Int      @default(0)
+  notInterested      Int      @default(0)
+  personalWork       Int      @default(0)
+  humanRequired      Int      @default(0)
+  failed             Int      @default(0)
+  noResponse         Int      @default(0)
+  closed             Int      @default(0)
+  startedAt          DateTime?
+  pausedAt           DateTime?
+  stoppedAt          DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+// Real, timestamped activity for the agent. `details` is a JSON string and must
+// never contain private Instagram message bodies.
+model AgentEvent {
+  id        String   @id @default(cuid())
+  type      String // RUN_STARTED | RESEARCH_COMPLETED | QUALIFIED | DRAFT_CREATED | SEND_BLOCKED | ...
+  status    String   @default("INFO") // INFO | SUCCESS | WARNING | ERROR | HUMAN_REQUIRED
+  message   String
+  leadId    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  details   String? // JSON string
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([type])
+  @@index([leadId])
+}
+
+// Outbound log. status is SENT only when a real provider confirmed delivery;
+// otherwise DRY_RUN (adapter missing), BLOCKED (safety gate) or FAILED.
+model OutboundMessage {
+  id          String   @id @default(cuid())
+  leadId      String
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  channel     String   @default("INSTAGRAM_DM")
+  recipient   String?
+  body        String
+  contentHash String
+  status      String   @default("DRY_RUN") // SENT | DRY_RUN | BLOCKED | FAILED
+  provider    String   @default("NONE")
+  providerRef String?
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([contentHash])
+}
+
+// Inbound message from the official provider webhook. Stores only what is needed
+// to identify, de-duplicate and display a reply. NEVER stores credentials.
+// providerMessageId is unique so a redelivered webhook is idempotent.
+model InboundMessage {
+  id                String   @id @default(cuid())
+  leadId            String?
+  lead              Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  channel           String   @default("INSTAGRAM_DM")
+  provider          String   @default("META_INSTAGRAM_MESSAGING")
+  providerMessageId String   @unique
+  senderIgSid       String
+  body              String
+  direction         String   @default("INBOUND")
+  deliveryStatus    String   @default("RECEIVED") // RECEIVED | IGNORED_ECHO | DUPLICATE
+  humanTakeover     Boolean  @default(false)
+  error             String?
+  createdAt         DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([senderIgSid])
+}
+
+// Owner-editable pricing bounds. The agent may only choose a price inside
+// [minPrice, maxNegotiation]; anything else escalates to a human.
+model PricingRule {
+  id              String   @id @default(cuid())
+  service         String   @unique
+  currency        String   @default("INR")
+  minPrice        Int
+  normalPriceMin  Int
+  normalPriceMax  Int
+  maxNegotiation  Int
+  escalationAbove Int?
+  active          Boolean  @default(true)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Structured learning. One interaction is never a permanent rule: rows start as
+// PROPOSED and only a human can promote them.
+model LearningEvent {
+  id                String   @id @default(cuid())
+  sourceType        String // AUTONOMOUS_RUN | HUMAN_CORRECTION | REPLY_ANALYSIS | PRICING_OUTCOME
+  sourceId          String?
+  category          String // OUTREACH_STYLE | QUALIFICATION | REPLY_ANALYSIS | PRICING
+  observation       String
+  humanAction       String?
+  outcome           String?
+  status            String   @default("PROPOSED") // PROPOSED | APPROVED | REJECTED | ARCHIVED
+  supportCount      Int      @default(1)
+  contradictionCount Int      @default(0)
+  leadId            String?
+  lead              Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([category, status])
+  @@index([leadId])
 }
