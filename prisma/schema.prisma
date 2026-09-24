@@ -1,0 +1,274 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Lead {
+  id                   String          @id @default(cuid())
+  businessName         String          @default("UNKNOWN")
+  personName           String          @default("UNKNOWN")
+  instagramUsername    String?
+  phone                String?
+  email                String?
+  location             String          @default("UNKNOWN")
+  website              String          @default("UNKNOWN")
+  niche                String          @default("UNKNOWN")
+  source               String          @default("INSTAGRAM")
+  sourceConversationId String?
+  conversationSummary  String?
+  intent               String          @default("UNKNOWN")
+  interestLevel        String          @default("UNKNOWN")
+  status               String          @default("NEW")
+  qualification        String          @default("PENDING_INFO")
+  qualificationReason  String?
+  offerDiscussed       String?
+  priceDiscussed       String?
+  objections           String?         // Stored as JSON string
+  importantMessages    String?         // Stored as JSON string
+  followUpNeeded       Boolean         @default(false)
+  followUpReason       String?
+  portfolioMatch       String          @default("NO_MATCH")
+  suggestedNextAction  String?
+  confidence           String          @default("LOW")
+  evidence             String?         // Stored as JSON string
+  notes                String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  conversations        Conversation[]
+  analyses             Analysis[]
+  corrections          Correction[]
+  outreachDrafts       OutreachDraft[]
+  evidenceItems        Evidence[]
+  learnings            Learning[]
+  researchRecords      BusinessResearch[]
+
+  @@index([status])
+  @@index([intent])
+  @@index([source])
+  @@index([niche])
+  @@index([instagramUsername])
+}
+
+model Conversation {
+  id               String    @id @default(cuid())
+  externalId       String    @unique
+  source           String    @default("INSTAGRAM")
+  title            String    @default("Untitled Conversation")
+  participantNames String?   // Stored as JSON string array
+  messageCount     Int       @default(0)
+  rawMetadata      String?   // Stored as JSON string
+  leadId           String?
+  lead             Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  importId         String?
+  importRecord     Import?   @relation(fields: [importId], references: [id], onDelete: SetNull)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  messages         Message[]
+  analyses         Analysis[]
+
+  @@index([externalId])
+  @@index([source])
+}
+
+model Message {
+  id              String       @id @default(cuid())
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender          String
+  senderType      String       @default("UNKNOWN") // USER, CLIENT, UNKNOWN
+  content         String
+  timestamp       DateTime     @default(now())
+  sourceMessageId String?
+  metadata        String?      // JSON string
+
+  @@index([conversationId])
+  @@index([timestamp])
+}
+
+model Analysis {
+  id                  String        @id @default(cuid())
+  leadId              String?
+  lead                Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  conversationId      String?
+  conversation        Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  intent              String        @default("UNKNOWN")
+  intentReason        String?
+  intentConfidence    String        @default("LOW")
+  qualification       String        @default("PENDING_INFO")
+  qualificationReason String?
+  objections          String?       // JSON string
+  portfolioMatched    String        @default("NO_MATCH")
+  suggestedAction     String?
+  evidenceList        String?       // JSON string
+  rawAiResponse       String?       // JSON string
+  createdAt           DateTime      @default(now())
+
+  @@index([leadId])
+  @@index([conversationId])
+}
+
+model Learning {
+  id           String    @id @default(cuid())
+  learning     String
+  type         String    // OBJECTION_PATTERN, PRICING_SIGNAL, NICHE_BEHAVIOR, SUCCESS_FACTOR, REJECTION_REASON
+  evidence     String?   // JSON string array
+  confidence   String    @default("MEDIUM")
+  appliesTo    String    @default("General")
+  source       String    @default("CONVERSATION_ANALYSIS")
+  relatedLeadId String?
+  relatedLead  Lead?     @relation(fields: [relatedLeadId], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
+
+  @@index([type])
+  @@index([appliesTo])
+}
+
+model Import {
+  id                 String         @id @default(cuid())
+  source             String         @default("INSTAGRAM")
+  fileName           String
+  filePath           String?
+  status             String         @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  filesDiscovered    Int            @default(0)
+  supportedFiles     Int            @default(0)
+  unsupportedFiles   Int            @default(0)
+  conversationCount  Int            @default(0)
+  messageCount       Int            @default(0)
+  leadCount          Int            @default(0)
+  errors             String?        // JSON string array
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  conversations      Conversation[]
+
+  @@index([source])
+  @@index([status])
+}
+
+model Correction {
+  id             String    @id @default(cuid())
+  leadId         String
+  lead           Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  field          String
+  originalValue  String
+  correctedValue String
+  userReason     String?
+  createdAt      DateTime  @default(now())
+
+  @@index([leadId])
+}
+
+model PortfolioProject {
+  id           String    @id @default(cuid())
+  title        String
+  category     String
+  description  String
+  technologies String?
+  results      String?
+  liveUrl      String?
+  keyFeatures  String?
+  createdAt    DateTime  @default(now())
+
+  @@index([category])
+}
+
+model OutreachDraft {
+  id                    String    @id @default(cuid())
+  leadId                String
+  lead                  Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  channel               String    @default("INSTAGRAM_DM") // INSTAGRAM_DM, WHATSAPP, EMAIL
+  subject               String?
+  messageBody           String
+  personalizationReason String?
+  evidenceUsed          String?   // JSON string array
+  confidence            String    @default("MEDIUM")
+  status                String    @default("DRAFTED") // DRAFTED, APPROVED, REJECTED, SENT
+  approvedAt            DateTime?
+  createdAt             DateTime  @default(now())
+
+  @@index([leadId])
+  @@index([status])
+}
+
+model Evidence {
+  id           String    @id @default(cuid())
+  leadId       String
+  lead         Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  claim        String
+  evidence     String
+  source       String
+  confidence   String    @default("MEDIUM")
+  // Added in Phase 1 (P1): additive, nullable columns so existing conversation evidence is untouched.
+  sourceUrl    String?
+  observation  String?
+  fetchedAt    DateTime?
+  evidenceType String? // OBSERVED_FACT, OBSERVED_ABSENCE, UNREACHABLE, NOT_EVALUATED, AI_INFERENCE
+  createdAt    DateTime  @default(now())
+
+  @@index([leadId])
+  @@index([evidenceType])
+}
+
+// Phase 1 (P1) — structured record of one human-triggered public research run for a lead.
+// Fields are explicit columns (never one giant AI text blob) and every non-null value is backed by
+// an Evidence row carrying sourceUrl + fetchedAt + evidenceType. Nullable everywhere: "unknown"
+// stays null instead of being guessed.
+model BusinessResearch {
+  id                      String   @id @default(cuid())
+  leadId                  String
+  lead                    Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  targetUrl               String
+  finalUrl                String?
+  status                  String   @default("COMPLETED") // COMPLETED, PARTIAL, FAILED
+  source                  String   @default("PUBLIC_WEBSITE")
+  reachable               Boolean  @default(false)
+  httpStatus              Int?
+  statusText              String?
+  httpsAvailable          Boolean?
+  httpsStatus             Int?
+  httpsError              String?
+  responseTimeMs          Int?
+  redirectCount           Int      @default(0)
+  title                   String?
+  metaDescription         String?
+  canonicalUrl            String?
+  language                String?
+  viewportMetaPresent     Boolean?
+  viewportMetaContent     String?
+  h1Count                 Int?
+  h1Text                  String?
+  imageCount              Int?
+  imagesMissingAlt        Int?
+  robotsTxtPresent        Boolean?
+  bookingLinkDetected     Boolean?
+  bookingLinks            String? // JSON string array
+  contactLinkDetected     Boolean?
+  contactLinks            String? // JSON string array
+  emailLinks              String? // JSON string array (public mailto addresses only)
+  phoneLinks              String? // JSON string array (public tel numbers only)
+  socialLinks             String? // JSON string array of { platform, url }
+  structuredDataTypes     String? // JSON string array
+  businessName            String?
+  businessType            String?
+  category                String?
+  location                String?
+  publicEmail             String?
+  publicPhone             String?
+  services                String? // JSON string array
+  observations            String? // JSON string array of deterministic observation strings
+  aiSummaryUsed           Boolean  @default(false)
+  aiConfidence            String?
+  warnings                String? // JSON string array
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@unique([leadId, targetUrl])
+  @@index([leadId])
+  @@index([status])
+}
