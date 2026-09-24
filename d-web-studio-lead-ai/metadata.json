@@ -1,0 +1,6 @@
+{
+  "name": "D Web Studio Lead AI",
+  "description": "Internal AI-powered lead intelligence system for D Web Studio with Instagram, WhatsApp, and call import pipelines, qualification, portfolio matching, outreach drafting, and continuous structured learning.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
