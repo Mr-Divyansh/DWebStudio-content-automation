@@ -92,6 +92,9 @@ export class LeadRepository {
         researchRecords: {
           orderBy: { createdAt: 'desc' },
         },
+        qualifications: {
+          orderBy: { createdAt: 'desc' },
+        },
         learnings: {
           orderBy: { createdAt: 'desc' },
         },

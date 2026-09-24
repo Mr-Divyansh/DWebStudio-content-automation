@@ -47,6 +47,12 @@ export interface WebsiteAuditResult {
   reachable: boolean;
   httpStatus: number | null;
   statusText: string | null;
+  /**
+   * Phase 3 (P3): true when the server answered with an access/bot-protection status
+   * (e.g. 403). The page exists, but its content is NOT the business website, so no
+   * HTML-derived business fact is extracted from it.
+   */
+  blocked: boolean;
   httpsAvailable: boolean;
   httpsStatus: number | null;
   httpsError: string | null;
@@ -191,6 +197,17 @@ export const AUDIT_RULES = {
 
 const MAX_LISTED_LINKS = 5;
 const MAX_TEXT_EXTRACT_CHARS = 4000;
+
+/**
+ * Phase 3 (P3) — HTTP statuses that mean "you did not get the real page".
+ * A 403/429 answer is usually a bot-protection or access-denied page, so its HTML is NOT the
+ * business website and must never be turned into business claims (title, links, services...).
+ */
+export const BLOCK_HTTP_STATUSES = new Set([401, 403, 407, 429, 451]);
+
+export function isBlockHttpStatus(status: number | null | undefined): boolean {
+  return typeof status === 'number' && BLOCK_HTTP_STATUSES.has(status);
+}
 
 export function normalizeWhitespace(value: string | null | undefined): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -393,6 +410,18 @@ function buildObservations(result: WebsiteAuditResult): ResearchEvidenceDraft[] 
     `Homepage response: ${result.httpStatus ?? 'unknown'}`,
     'OBSERVED_FACT',
   );
+
+  // Phase 3 (P3): 403 / access-denied responses. The HTTP facts above are kept, but the body is a
+  // block page — so the title/booking/contact/link checks below are explicitly NOT evaluated
+  // rather than being read as if they described the real business website.
+  if (result.blocked) {
+    push(
+      'Access blocked',
+      `Access to the page content was blocked (HTTP ${result.httpStatus ?? 'unknown'}). The response body is a block/access page, not the business website, so no page content was analyzed.`,
+      'NOT_EVALUATED',
+    );
+    return facts.slice(0, 20);
+  }
   push('HTTPS', result.httpsAvailable ? 'HTTPS: yes' : 'HTTPS: no', result.httpsAvailable ? 'OBSERVED_FACT' : 'OBSERVED_ABSENCE');
 
   if (result.redirectCount > 0) {
@@ -522,6 +551,7 @@ function finalizeAudit(
     reachable: false,
     httpStatus: null,
     statusText: null,
+    blocked: false,
     httpsAvailable: false,
     httpsStatus: null,
     httpsError: null,
@@ -604,17 +634,26 @@ export class WebsiteAuditor {
 
     const reachable = page.httpStatus !== null;
     const finalUrl = page.finalUrl || requestedUrl;
+    // Phase 3 (P3): 403-style answers are recorded as BLOCKED, not as a normal audited page.
+    const blocked = reachable && isBlockHttpStatus(page.httpStatus);
 
     const baseExtras: Partial<WebsiteAuditResult> = {
       finalUrl,
       reachable,
       httpStatus: page.httpStatus,
       statusText: page.statusText,
+      blocked,
       redirectCount: page.redirectCount,
       redirectChain: page.redirectChain,
       responseTimeMs: page.responseTimeMs,
       warnings,
     };
+
+    if (blocked) {
+      warnings.push(
+        `The server answered HTTP ${page.httpStatus} (access/bot-protection). The response body is a block page, so HTML-derived business checks were not evaluated.`,
+      );
+    }
 
     const httpsInfo = await this.checkHttps(finalUrl, page.httpStatus, options, fetchOptions);
     const robots = reachable ? await this.checkRobotsTxt(finalUrl, options, fetchOptions) : {};
@@ -622,6 +661,17 @@ export class WebsiteAuditor {
 
     if (!reachable) {
       return finalizeAudit(requestedUrl, fetchedAt, errors, combined);
+    }
+
+    // Phase 3 (P3): a block page is never parsed for business facts (title, links, services...).
+    if (blocked) {
+      return finalizeAudit(requestedUrl, fetchedAt, errors, {
+        ...combined,
+        observations: [
+          ...buildObservations(finalizeAudit(requestedUrl, fetchedAt, errors, { ...combined, observations: [] })),
+          notEvaluatedEvidence(finalUrl, 'HTML analysis', 'HTML analysis: not evaluated (HTTP access/bot-protection page)', fetchedAt),
+        ],
+      });
     }
 
     const html = page.body || '';

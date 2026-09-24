@@ -90,6 +90,8 @@ export interface BusinessResearchItem {
   publicPhone?: string | null;
   services?: string | null;
   observations?: string | null;
+  /** Phase 3 (P3): true when the response was an access/bot-protection page (403 etc.). */
+  blocked?: boolean | null;
   aiSummaryUsed: boolean;
   aiConfidence?: string | null;
   warnings?: string | null;
@@ -115,6 +117,56 @@ export interface LeadResearchOutcome {
   warnings: string[];
   errors: Array<{ code: string; message: string }>;
   isAiGenerated: boolean;
+}
+
+/* Phase 3 (P3) — deterministic, evidence-based qualification types. */
+export type LeadQualificationStatus = 'QUALIFIED' | 'NOT_QUALIFIED' | 'NEEDS_REVIEW';
+export type LeadQualificationConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
+export type QualificationReasonType =
+  | 'EXPLICIT_REQUEST'
+  | 'OBSERVATION'
+  | 'EXCLUSION'
+  | 'CONFLICT'
+  | 'MISSING_DATA';
+
+export interface QualificationReason {
+  ruleId: string;
+  type: QualificationReasonType;
+  reason: string;
+  evidenceIds: string[];
+}
+
+export interface PortfolioMatchItem {
+  project: { id: string; title: string; category: string; liveUrl: string | null } | null;
+  reason: string;
+  confidence: LeadQualificationConfidence;
+}
+
+/** Response of POST /api/leads/:id/qualify. */
+export interface LeadQualificationOutcome {
+  id?: string;
+  status: LeadQualificationStatus;
+  confidence: LeadQualificationConfidence;
+  reasons: QualificationReason[];
+  portfolioMatch: PortfolioMatchItem;
+  nextAction: string;
+  ruleTrace?: Array<{ ruleId: string; fired: boolean; note: string }>;
+  evidence?: Array<{ id: string; sourceUrl: string | null; observation: string | null; fetchedAt: string | null }>;
+  researchCount?: number;
+  cached?: boolean;
+}
+
+/** Row of GET /api/leads/:id/qualification (stored history). */
+export interface LeadQualificationItem {
+  id: string;
+  leadId: string;
+  status: string;
+  confidence: string;
+  reasons: string;
+  portfolioMatch: string;
+  nextAction: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface MessageItem {
@@ -221,6 +273,7 @@ export interface LeadItem {
   outreachDrafts?: OutreachDraftItem[];
   evidenceItems?: EvidenceItem[];
   researchRecords?: BusinessResearchItem[];
+  qualifications?: LeadQualificationItem[];
 }
 
 export interface LearningItem {

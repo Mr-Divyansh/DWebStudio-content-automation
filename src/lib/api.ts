@@ -8,6 +8,8 @@ import {
   ConfigInfo,
   LeadResearchOutcome,
   BusinessResearchItem,
+  LeadQualificationOutcome,
+  LeadQualificationItem,
 } from '../types';
 
 export const api = {
@@ -124,6 +126,29 @@ export const api = {
   async getLeadResearch(id: string): Promise<BusinessResearchItem[]> {
     const res = await fetch(`/api/leads/${id}/research`);
     if (!res.ok) throw new Error('Failed to fetch stored research');
+    return res.json();
+  },
+
+  /**
+   * Phase 3 (P3) — deterministic qualification for one lead (human triggered).
+   * Evaluates stored research/evidence only; it never contacts or messages the business.
+   */
+  async qualifyLead(id: string, body: { force?: boolean } = {}): Promise<LeadQualificationOutcome> {
+    const res = await fetch(`/api/leads/${id}/qualify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to run qualification');
+    }
+    return res.json();
+  },
+
+  async getLeadQualifications(id: string): Promise<LeadQualificationItem[]> {
+    const res = await fetch(`/api/leads/${id}/qualification`);
+    if (!res.ok) throw new Error('Failed to fetch qualification history');
     return res.json();
   },
 

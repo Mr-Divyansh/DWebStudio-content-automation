@@ -183,6 +183,8 @@ export class ResearchService {
 
     if (options.useAi === false) {
       warnings.push('AI classification was disabled for this run (deterministic facts only).');
+    } else if (audit.blocked) {
+      warnings.push('AI classification skipped: the page was blocked (HTTP access/bot-protection), so no page text was analyzed.');
     } else if (audit.htmlAnalyzed && audit.textExtract) {
       const aiResult = await ConversationAnalyzer.summarizeBusinessProfile({
         sourceUrl: sourcedUrl,
@@ -221,11 +223,13 @@ export class ResearchService {
     if (!publicPhone) unknowns.push('publicPhone');
     if (!services) unknowns.push('services');
 
+    // Phase 3 (P3): a block page (403 etc.) is PARTIAL, never COMPLETED — its content is not the
+    // business website, so the research result must not read like a successful audit.
     const status: ResearchStatus = !audit.reachable
       ? 'FAILED'
-      : audit.htmlAnalyzed
-        ? 'COMPLETED'
-        : 'PARTIAL';
+      : audit.blocked || !audit.htmlAnalyzed
+        ? 'PARTIAL'
+        : 'COMPLETED';
 
     const researchData = {
       leadId,
@@ -268,6 +272,7 @@ export class ResearchService {
       publicPhone,
       services: jsonArray(services),
       observations: jsonArray(deterministicEvidence.map((item) => item.observation)),
+      blocked: audit.blocked,
       aiSummaryUsed: isAiGenerated,
       aiConfidence: aiProfile?.confidence || null,
       warnings: jsonArray(warnings),

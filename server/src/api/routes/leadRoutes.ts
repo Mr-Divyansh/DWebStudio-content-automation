@@ -99,6 +99,34 @@ leadRouter.get('/:id/research', async (req, res) => {
   }
 });
 
+/**
+ * Phase 3 (P3) — deterministic lead qualification.
+ *
+ * Human-triggered only: this endpoint evaluates the stored Phase 1 research/evidence for ONE lead
+ * through the deterministic rule engine. It never contacts the business, never sends a message,
+ * never runs in bulk/background, and never calls an AI model to make the decision.
+ */
+leadRouter.post('/:id/qualify', async (req, res) => {
+  try {
+    const result = await LeadService.runQualification(req.params.id, { force: req.body?.force === true });
+    res.json(result);
+  } catch (err: any) {
+    console.error('Error qualifying lead:', err);
+    res.status(500).json({ error: err?.message || 'Failed to run qualification' });
+  }
+});
+
+/** Stored qualification history for a lead, newest first. */
+leadRouter.get('/:id/qualification', async (req, res) => {
+  try {
+    const result = await LeadService.getQualifications(req.params.id);
+    res.json(result);
+  } catch (err: any) {
+    console.error('Error fetching qualification:', err);
+    res.status(500).json({ error: err?.message || 'Failed to fetch qualification' });
+  }
+});
+
 leadRouter.post('/:id/draft-message', async (req, res) => {
   try {
     const result = await LeadService.generateOutreachDraft(req.params.id);

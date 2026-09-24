@@ -22,7 +22,7 @@ import {
   Link2,
   RefreshCw,
 } from 'lucide-react';
-import { LeadItem, PortfolioProjectItem, LeadResearchOutcome, BusinessResearchItem } from '../../types';
+import { LeadItem, PortfolioProjectItem, LeadResearchOutcome, BusinessResearchItem, LeadQualificationOutcome, QualificationReason, PortfolioMatchItem } from '../../types';
 import { Badge } from '../common/Badge';
 import { api } from '../../lib/api';
 
@@ -48,6 +48,23 @@ function jsonListOfObjects(value?: string | null): Array<{ platform?: string; ur
   }
 }
 
+/** Safely reads a JSON object column (qualification reasons / portfolio match). Never throws. */
+function parseJsonObject<T>(value: string | null | undefined, fallback: T): T {
+  if (!value) return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    return (parsed ?? fallback) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+const QUALIFICATION_STATUS_STYLES: Record<string, string> = {
+  QUALIFIED: 'bg-[#7EE787]/10 text-[#7EE787] border-[#7EE787]/30',
+  NOT_QUALIFIED: 'bg-[#FF8E8E]/10 text-[#FF8E8E] border-[#FF8E8E]/30',
+  NEEDS_REVIEW: 'bg-[#E3B341]/10 text-[#E3B341] border-[#E3B341]/30',
+};
+
 interface LeadDetailModalProps {
   lead: LeadItem;
   onClose: () => void;
@@ -61,7 +78,7 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
   onUpdate,
   portfolioProjects,
 }) => {
-  const [activeTab, setActiveTab] = useState<'intelligence' | 'conversation' | 'outreach' | 'correction' | 'research'>('intelligence');
+  const [activeTab, setActiveTab] = useState<'intelligence' | 'conversation' | 'outreach' | 'correction' | 'research' | 'qualification'>('intelligence');
   const [copiedDraft, setCopiedDraft] = useState(false);
   const [copiedQuote, setCopiedQuote] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -75,6 +92,10 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
     lead.website && lead.website !== 'UNKNOWN' ? lead.website : '',
   );
   const [researchResult, setResearchResult] = useState<LeadResearchOutcome | null>(null);
+
+  // Phase 3 (P3) — deterministic qualification state
+  const [isQualifying, setIsQualifying] = useState(false);
+  const [qualificationResult, setQualificationResult] = useState<LeadQualificationOutcome | null>(null);
 
   // Correction state
   const [correctionField, setCorrectionField] = useState('intent');
@@ -113,6 +134,38 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
   const researchEmails = latestResearch ? parseJsonList(latestResearch.emailLinks) : [];
   const researchPhones = latestResearch ? parseJsonList(latestResearch.phoneLinks) : [];
   const researchSocials = latestResearch ? jsonListOfObjects(latestResearch.socialLinks) : [];
+
+  // Phase 3 (P3) — latest stored qualification run (the API result wins until the modal is reopened)
+  const storedQualification = lead.qualifications?.[0] || null;
+  const latestQualification: LeadQualificationOutcome | null = qualificationResult
+    ? qualificationResult
+    : storedQualification
+      ? {
+          status: storedQualification.status as LeadQualificationOutcome['status'],
+          confidence: storedQualification.confidence as LeadQualificationOutcome['confidence'],
+          reasons: parseJsonObject<QualificationReason[]>(storedQualification.reasons, []),
+          portfolioMatch: parseJsonObject<PortfolioMatchItem>(storedQualification.portfolioMatch, {
+            project: null,
+            reason: '',
+            confidence: 'LOW',
+          }),
+          nextAction: storedQualification.nextAction,
+          cached: true,
+        }
+      : null;
+  const qualificationEvidence: Array<{ id: string; sourceUrl: string | null; observation: string | null; fetchedAt: string | null }> =
+    (qualificationResult?.evidence && qualificationResult.evidence.length > 0
+      ? qualificationResult.evidence
+      : (lead.evidenceItems || [])
+          .filter((item) =>
+            (latestQualification?.reasons || []).some((reason) => reason.evidenceIds.includes(String((item as any).id))),
+          )
+          .map((item) => ({
+            id: String((item as any).id),
+            sourceUrl: item.sourceUrl ?? null,
+            observation: item.observation || item.evidence,
+            fetchedAt: item.fetchedAt ?? null,
+          })) as Array<{ id: string; sourceUrl: string | null; observation: string | null; fetchedAt: string | null }>);
 
   const handleCopyText = (text: string, isDraft = false) => {
     navigator.clipboard.writeText(text);
@@ -165,6 +218,29 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
       setNotice(err?.message || 'Failed to run public research');
     } finally {
       setIsResearching(false);
+    }
+  };
+
+  /**
+   * Phase 3 (P3) — deterministic qualification is only ever started by this human click.
+   * It evaluates stored research/evidence only: no network call, no AI decision, no messaging.
+   */
+  const handleRunQualification = async (force: boolean) => {
+    try {
+      setIsQualifying(true);
+      setNotice(null);
+      const res = await api.qualifyLead(lead.id, { force });
+      setQualificationResult(res);
+      setNotice(
+        res.cached
+          ? 'Qualification reused the existing stored result (no new history row).'
+          : `Qualification stored: ${res.status} (${res.confidence}).`,
+      );
+      onUpdate();
+    } catch (err: any) {
+      setNotice(err?.message || 'Failed to run qualification');
+    } finally {
+      setIsQualifying(false);
     }
   };
 

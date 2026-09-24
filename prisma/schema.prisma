@@ -46,6 +46,7 @@ model Lead {
   evidenceItems        Evidence[]
   learnings            Learning[]
   researchRecords      BusinessResearch[]
+  qualifications       LeadQualification[]
 
   @@index([status])
   @@index([intent])
@@ -262,6 +263,9 @@ model BusinessResearch {
   publicPhone             String?
   services                String? // JSON string array
   observations            String? // JSON string array of deterministic observation strings
+  // Phase 3 (P3): true when the public response was a bot-protection / access-denied page
+  // (e.g. HTTP 403). Content from such a page never becomes a business claim.
+  blocked                Boolean? // true = BLOCKED response, HTML/business checks not evaluated
   aiSummaryUsed           Boolean  @default(false)
   aiConfidence            String?
   warnings                String? // JSON string array
@@ -271,4 +275,25 @@ model BusinessResearch {
   @@unique([leadId, targetUrl])
   @@index([leadId])
   @@index([status])
+}
+
+// Phase 3 (P3) — deterministic, evidence-based lead qualification result.
+// Every row is one human-triggered run; older rows are kept as history (never overwritten).
+// `reasons` is a JSON array of { ruleId, type, reason, evidenceIds[] } so every factual reason
+// is traceable to Evidence rows; no reason exists without supporting evidence.
+model LeadQualification {
+  id             String   @id @default(cuid())
+  leadId         String
+  lead           Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  status         String   @default("NEEDS_REVIEW") // QUALIFIED, NOT_QUALIFIED, NEEDS_REVIEW
+  confidence     String   @default("LOW") // HIGH, MEDIUM, LOW (deterministic from evidence completeness)
+  reasons        String   @default("[]") // JSON string array of structured reason objects
+  portfolioMatch String   @default("null") // JSON string: { project, reason, confidence } (project may be null)
+  nextAction     String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([leadId])
+  @@index([status])
+  @@index([createdAt])
 }

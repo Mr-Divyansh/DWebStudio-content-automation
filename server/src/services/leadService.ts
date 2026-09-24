@@ -2,6 +2,7 @@ import { LeadRepository, LeadFilterOptions } from '../database/repositories/lead
 import { ConversationRepository } from '../database/repositories/conversationRepository.js';
 import { PortfolioService } from './portfolioService.js';
 import { ResearchService, ResearchOptions } from './researchService.js';
+import { QualificationService } from './qualificationService.js';
 import { ConversationAnalyzer } from '../ai/analyzer.js';
 import { LearningEngine } from '../learning/learningEngine.js';
 import { prisma } from '../database/client.js';
@@ -21,6 +22,18 @@ export class LeadService {
 
   static async getResearch(leadId: string) {
     return ResearchService.getResearchForLead(leadId);
+  }
+
+  /**
+   * Phase 3 (P3) — human-triggered deterministic qualification for one lead.
+   * Delegates to QualificationService so there is a single rule engine.
+   */
+  static async runQualification(leadId: string, options: { force?: boolean } = {}) {
+    return QualificationService.qualifyLead(leadId, options);
+  }
+
+  static async getQualifications(leadId: string) {
+    return QualificationService.getQualificationsForLead(leadId);
   }
 
   static async getLeadById(id: string) {
