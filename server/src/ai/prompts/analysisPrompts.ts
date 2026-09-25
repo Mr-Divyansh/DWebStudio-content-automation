@@ -150,6 +150,52 @@ Output valid JSON only. Do not wrap in markdown backticks.`;
   return { systemInstruction, userPrompt };
 }
 
+export function buildReplyAnalysisPrompt(options: {
+  inboundText: string;
+  leadInfo: any;
+  currentStage: string;
+  previousMessages?: string;
+  relevantLearnings: Array<{ learning: string; appliesTo: string; type: string }>;
+}): { systemInstruction: string; userPrompt: string } {
+  const systemInstruction = `You are the inbound conversation decision engine for D Web Studio.
+
+Return only JSON matching the requested schema. Classify only the facts in the inbound message and supplied lead context.
+Never invent a name, service, price, promise, discount, deadline, or customer message. Use HUMAN_REQUIRED for complaints,
+refunds, payment/legal/security questions, custom scope, uncertainty, low confidence, or any sensitive situation.
+Stages must be one of NEW, QUALIFYING, INTERESTED, REQUIREMENTS, PRICING, NEGOTIATION, READY_TO_BUY, FOLLOW_UP,
+HUMAN_REQUIRED, CLOSED, NOT_INTERESTED. Evidence entries must be verbatim excerpts from the inbound message.`;
+
+  const learnings = options.relevantLearnings.length
+    ? options.relevantLearnings.map((item) => `- [${item.type}] ${item.learning}`).join('\\n')
+    : '- No approved historical learning available.';
+
+  const leadContext = JSON.stringify({
+    businessName: options.leadInfo.businessName,
+    niche: options.leadInfo.niche,
+    status: options.leadInfo.status,
+    qualification: options.leadInfo.qualification,
+    conversationStage: options.leadInfo.conversationStage,
+  });
+
+  const userPrompt = `Current stage: ${options.currentStage}
+Lead context (may contain UNKNOWN values): ${leadContext}
+Previous authorized conversation messages (context only, never customer data to reproduce verbatim):
+${options.previousMessages || '(none)'}
+Approved historical learnings:
+${learnings}
+
+INBOUND MESSAGE:
+"""
+${options.inboundText}
+"""
+
+Decide the next conversation stage, intent, whether requirements are needed, whether pricing was asked,
+whether purchase intent is explicit, and whether a human must take over. Evidence must be copied verbatim.
+Return valid JSON only.`;
+
+  return { systemInstruction, userPrompt };
+}
+
 export function buildLearningExtractionPrompt(options: {
   conversationText: string;
   leadInfo: any;

@@ -25,9 +25,11 @@ import {
   RefreshCw,
   Hand,
   Lock,
+  Zap,
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { AgentStatus, AgentEventItem, OutboundMessageItem } from '../../types';
+import { AiPowerCard } from './AiPowerCard';
 
 const stateStyles: Record<string, string> = {
   RUNNING: 'text-[#7EE787] bg-[#152E20] border-[#2A5A34]',
@@ -51,6 +53,7 @@ export const AgentControlPanel: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -86,10 +89,29 @@ export const AgentControlPanel: React.FC = () => {
     try {
       setBusy(true);
       setError(null);
+      setNotice(null);
       setStatus(await fn());
       await load();
     } catch (err: any) {
       setError(err?.message || 'Action failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Runs one agent cycle immediately — handy right after adding API keys. */
+  const runCycle = async () => {
+    try {
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+      const result = await api.runAgentTick();
+      setNotice(
+        `Cycle finished: processed ${result.processed}, researched ${result.researched}, drafted ${result.drafted}, sent ${result.sent}, blocked ${result.blocked}.`,
+      );
+      await load();
+    } catch (err: any) {
+      setError(err?.message || 'Cycle failed.');
     } finally {
       setBusy(false);
     }
@@ -127,8 +149,17 @@ export const AgentControlPanel: React.FC = () => {
 
   return (
     <div className="space-y-5">
+      {/* THE ONE SWITCH — on/off, readiness checklist, training, API keys. */}
+      <AiPowerCard variant="full" />
+
       {error && (
         <div className="px-4 py-2.5 rounded-lg bg-[#2E1A1A] border border-[#5A2A2A] text-xs text-[#FFB4B4]">{error}</div>
+      )}
+      {notice && (
+        <div className="px-4 py-2.5 rounded-lg bg-[#12171F] border border-[#1E2734] text-xs text-[#C3CAD6] flex items-start gap-2">
+          <CheckCircle2 className="w-3.5 h-3.5 mt-px shrink-0 text-[#7EE787]" />
+          <span>{notice}</span>
+        </div>
       )}
 
       {/* ------------------------------------------------ MAIN CONTROL CARD */}
@@ -139,9 +170,9 @@ export const AgentControlPanel: React.FC = () => {
               <Bot className="w-5 h-5 text-[#2F7EF2]" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-[#F4F1EA] tracking-wide">AI AUTONOMOUS MODE</h3>
+              <h3 className="text-sm font-bold text-[#F4F1EA] tracking-wide">RUNTIME DETAIL</h3>
               <p className="text-[11px] text-[#8C98A9] mt-0.5">
-                Research → Qualify → Draft → Gated send → Learn
+                What the loop is doing right now. The switch above is the only control you need.
               </p>
             </div>
           </div>
@@ -182,48 +213,40 @@ export const AgentControlPanel: React.FC = () => {
           </div>
         </div>
 
-        {/* Controls */}
+        {/* Fine controls. The AI ON/OFF switch above is the primary control; these
+            are only for short-term adjustments while the AI runs. */}
         <div className="flex flex-wrap items-center gap-2 mt-4">
-          <button
-            onClick={() => act(api.startAgent)}
-            disabled={busy || status.state === 'RUNNING'}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#2F7EF2] hover:bg-[#2568cc] text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-          >
-            <Play className="w-3.5 h-3.5" /> START AI
-          </button>
           <button
             onClick={() => act(api.pauseAgent)}
             disabled={busy || status.state !== 'RUNNING'}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#141A22] hover:bg-[#1E2734] border border-[#1E2734] text-[#F4F1EA] text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141A22] hover:bg-[#1E2734] border border-[#1E2734] text-[11px] font-semibold text-[#F4F1EA] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
-            <Pause className="w-3.5 h-3.5" /> PAUSE AI
+            <Pause className="w-3.5 h-3.5" /> Pause
+          </button>
+          <button
+            onClick={() => act(api.startAgent)}
+            disabled={busy || status.state !== 'PAUSED'}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141A22] hover:bg-[#1E2734] border border-[#1E2734] text-[11px] font-semibold text-[#F4F1EA] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+          >
+            <Play className="w-3.5 h-3.5" /> Resume
+          </button>
+          <button
+            onClick={runCycle}
+            disabled={busy || status.state !== 'RUNNING'}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141A22] hover:bg-[#1E2734] border border-[#1E2734] text-[11px] font-semibold text-[#F4F1EA] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+          >
+            <Zap className="w-3.5 h-3.5 text-[#2F7EF2]" /> Run one cycle
           </button>
           <button
             onClick={() => act(api.stopAgent)}
             disabled={busy || status.state === 'STOPPED'}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#141A22] hover:bg-[#1E2734] border border-[#1E2734] text-[#F4F1EA] text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141A22] hover:bg-[#1E2734] border border-[#1E2734] text-[11px] font-semibold text-[#8C98A9] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
-            <Square className="w-3.5 h-3.5" /> STOP AI
+            <Square className="w-3.5 h-3.5" /> Stop
           </button>
-
-          <div className="flex items-center gap-2 ml-1 pl-3 border-l border-[#1E2734]">
-            <span className="text-[11px] text-[#8C98A9] font-semibold">AUTO DM</span>
-            <button
-              onClick={() => act(() => api.setAutoDm(!status.autoDm))}
-              disabled={busy}
-              className={`relative w-11 h-5 rounded-full transition-colors cursor-pointer disabled:opacity-50 ${
-                status.autoDm ? 'bg-[#2F7EF2]' : 'bg-[#252F3C]'
-              }`}
-              aria-label="Toggle AUTO DM"
-            >
-              <span
-                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${
-                  status.autoDm ? 'left-[22px]' : 'left-0.5'
-                }`}
-              />
-            </button>
-            <span className="text-[11px] font-mono text-[#C3CAD6]">{status.autoDm ? 'ON' : 'OFF'}</span>
-          </div>
+          <span className="text-[11px] text-[#718096]">
+            AUTO DM follows the power switch and is only ON when a sending account is connected.
+          </span>
         </div>
 
         {/* Messaging readiness — honest about what can actually happen */}
@@ -284,7 +307,7 @@ export const AgentControlPanel: React.FC = () => {
           </div>
           <div className="max-h-80 overflow-y-auto divide-y divide-[#1C232D]">
             {events.length === 0 && (
-              <p className="p-6 text-center text-xs text-[#8C98A9]">No agent activity yet. Press START AI to begin.</p>
+              <p className="p-6 text-center text-xs text-[#8C98A9]">No agent activity yet. Switch the AI on to begin.</p>
             )}
             {events.map((ev) => (
               <div key={ev.id} className="px-4 py-2.5 flex items-start gap-2.5">

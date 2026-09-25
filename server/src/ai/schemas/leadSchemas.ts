@@ -79,8 +79,55 @@ export const ConversationAnalysisSchema = z.object({
 
 export type ConversationAnalysis = z.infer<typeof ConversationAnalysisSchema>;
 
-/**
- * Phase 1 (P1/P2) — research evidence item produced by the public website audit (deterministic) or
+export const ConversationStageEnum = z.enum([
+  'NEW',
+  'QUALIFYING',
+  'INTERESTED',
+  'REQUIREMENTS',
+  'PRICING',
+  'NEGOTIATION',
+  'READY_TO_BUY',
+  'FOLLOW_UP',
+  'HUMAN_REQUIRED',
+  'CLOSED',
+  'NOT_INTERESTED',
+]);
+
+export interface LeadDiscoverySignals {
+  hasBooking: boolean | null;
+  hasContact: boolean | null;
+  hasViewport: boolean | null;
+  missingAltRatio: number | null;
+  responseTimeMs: number | null;
+  socialPlatforms: string[];
+}
+
+export const LeadDiscoverySignalSchema = z.object({
+  hasBooking: z.boolean().nullable(),
+  hasContact: z.boolean().nullable(),
+  hasViewport: z.boolean().nullable(),
+  missingAltRatio: z.number().min(0).max(1).nullable(),
+  responseTimeMs: z.number().nonnegative().nullable(),
+  socialPlatforms: z.array(z.string()).default([]),
+});
+
+export const ReplyAnalysisSchema = z.object({
+  stage: ConversationStageEnum,
+  intent: IntentEnum,
+  confidence: ConfidenceEnum,
+  evidence: z.array(z.string()).default([]),
+  reason: z.string(),
+  needsHuman: z.boolean().default(false),
+  needsRequirements: z.boolean().default(false),
+  asksPricing: z.boolean().default(false),
+  purchaseIntent: z.boolean().default(false),
+  objection: z.string().nullable().default(null),
+  suggestedNextAction: z.string(),
+});
+
+export type ReplyAnalysis = z.infer<typeof ReplyAnalysisSchema>;
+
+/** Phase 1 (P1/P2) — research evidence item produced by the public website audit (deterministic) or
  * by the optional AI classification step. Every item stays traceable to a source URL + fetch time.
  */
 export const ResearchEvidenceItemSchema = z.object({

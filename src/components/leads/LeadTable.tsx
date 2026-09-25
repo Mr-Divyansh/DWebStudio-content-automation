@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Calendar,
   ExternalLink,
@@ -8,8 +8,11 @@ import {
   Briefcase,
   AlertCircle,
   CheckCircle2,
+  MessageCircle,
+  Phone,
+  Mail,
 } from 'lucide-react';
-import { LeadItem, LeadStatus, LeadIntent } from '../../types';
+import { LeadItem, LeadStatus, LeadIntent, chatLinksForLead } from '../../types';
 import { Badge } from '../common/Badge';
 
 interface LeadTableProps {
@@ -250,16 +253,19 @@ export const LeadTable: React.FC<LeadTableProps> = ({
 
                   {/* Action */}
                   <td className="py-3.5 px-4 text-right">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectLead(lead);
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-[#141A22] hover:bg-[#1E2734] text-xs font-semibold text-[#F4F1EA] border border-[#1E2734] transition-all inline-flex items-center gap-1.5 cursor-pointer"
-                    >
-                      Dossier
-                      <ArrowRight className="w-3 h-3 text-[#2F7EF2]" />
-                    </button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <ChatButtons lead={lead} compact />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectLead(lead);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-[#141A22] hover:bg-[#1E2734] text-xs font-semibold text-[#F4F1EA] border border-[#1E2734] transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        Dossier
+                        <ArrowRight className="w-3 h-3 text-[#2F7EF2]" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -277,6 +283,47 @@ export const LeadTable: React.FC<LeadTableProps> = ({
           </table>
         </div>
       </div>
+    </div>
+  );
+};
+
+const CHAT_ICONS: Record<string, React.ReactNode> = {
+  whatsapp: <MessageCircle className="w-3.5 h-3.5" />,
+  instagram: <ExternalLink className="w-3.5 h-3.5" />,
+  call: <Phone className="w-3.5 h-3.5" />,
+  email: <Mail className="w-3.5 h-3.5" />,
+};
+
+/** 1-click chat — WhatsApp / Instagram / call / email seedha khulega. */
+export const ChatButtons: React.FC<{ lead: LeadItem; compact?: boolean }> = ({ lead, compact = false }) => {
+  const links = useMemo(
+    () =>
+      chatLinksForLead({
+        phone: lead.phone ?? null,
+        instagramUsername: lead.instagramUsername ?? null,
+        email: lead.email ?? null,
+        businessName: lead.businessName,
+      }),
+    [lead.phone, lead.instagramUsername, lead.email, lead.businessName],
+  );
+  if (links.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+      {links.map((link) => (
+        <a
+          key={link.id}
+          href={link.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`${link.label} — ${link.hint}`}
+          className={`inline-flex items-center gap-1 rounded-lg border border-[#1E2734] bg-[#141A22] text-[#6FB2FF] hover:bg-[#1E2734] transition-colors ${
+            compact ? 'px-2 py-1.5' : 'px-2.5 py-1.5 text-xs font-semibold'
+          }`}
+        >
+          {CHAT_ICONS[link.id] ?? <MessageCircle className="w-3.5 h-3.5" />}
+          {!compact && <span>{link.label}</span>}
+        </a>
+      ))}
     </div>
   );
 };

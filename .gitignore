@@ -24,3 +24,5 @@ output/reports/*
 *.sqlite
 *.sqlite-journal
 bun.lock
+.vault.json
+.vault.salt

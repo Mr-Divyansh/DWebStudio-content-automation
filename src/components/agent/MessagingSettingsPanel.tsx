@@ -1,5 +1,5 @@
-﻿/**
- * D Web Studio AI â€” Messaging Settings & Conversation Controls
+/**
+ * D Web Studio AI — Messaging Settings & Conversation Controls
  * ---------------------------------------------------------------------------
  * Read-only visibility of real provider/account/webhook state plus the explicit
  * [TAKE OVER] / [RELEASE TO AI] controls.
@@ -76,7 +76,7 @@ export const MessagingSettingsPanel: React.FC = () => {
   };
 
   if (isLoading) {
-    return <div className="p-6 text-center text-xs text-[#8C98A9]">Loading messaging settingsâ€¦</div>;
+    return <div className="p-6 text-center text-xs text-[#8C98A9]">Loading messaging settings…</div>;
   }
   if (!settings) {
     return (
@@ -130,7 +130,7 @@ export const MessagingSettingsPanel: React.FC = () => {
         </div>
 
         <p className="mt-2.5 text-[10px] text-[#5A6675] font-mono">
-          {settings.provider} Â· {settings.account.reason}
+          {settings.provider} · {settings.account.reason}
         </p>
         <p className="mt-1 text-[10px] text-[#5A6675] font-mono">Callback: {settings.webhook.path}</p>
       </div>

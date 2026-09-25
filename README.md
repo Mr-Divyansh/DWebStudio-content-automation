@@ -1,8 +1,49 @@
-# D Web Studio Lead AI
+# D Web Studio Lead AI — bas ON karo, kaam shuru ✅
 
-An internal AI-powered lead intelligence system for **D Web Studio**. Built for high-ticket web design and engineering client acquisition, lead qualification, and personalized outreach drafting.
+> **Aapko sirf 3 cheezein karni hain: API keys dalo → AI ON karo → done.**
+> AI khud train hogi (portfolio + pricing se), research/qualify/draft karegi.
+> Sirf un logon ko jawab degi jinhone aapko message kiya. Bina keys ke bhi
+> AI **draft-only mode** me safely chalti hai — kuch bhi send nahi hota.
+
+### 1️⃣ API keys dalo (`.env` file me)
+```bash
+cp .env.example .env
+```
+`.env` kholo aur sirf ye bharo:
+```ini
+GEMINI_API_KEY="your_key_here"
+DATABASE_URL="file:./dev.db"
+# Instagram se real send karna hai tabhi ye bharo:
+MESSAGING_PROVIDER="instagram"
+META_PAGE_ACCESS_TOKEN="..."
+META_PAGE_ID="..."
+META_APP_SECRET="..."
+META_WEBHOOK_VERIFY_TOKEN="koi-random-string"
+```
+Bina Instagram keys ke AI draft-only me chalegi — ye normal hai, safe hai.
+
+### 2️⃣ App chalao
+```bash
+npm install
+npm run dev
+```
+Browser: `http://localhost:3000`
+
+### 3️⃣ AI ON karo — ek hi switch
+- **Dashboard** pe sabse upar bada **AI ON/OFF** switch hai, ya
+- **AI Control Center** tab kholo → **AI POWER** switch ON karo.
+- ON dabate hi backend ek request me sab karta hai: train (agar jarurat)
+  → discovery resume → loop start → AUTO DM sirf tabhi ON jab sending
+  account connected ho. OFF dabate hi sab ruk jata hai.
+
+Agar AI train nahi hai to ghabrao mat — ON dabate hi **Train** ho jati hai.
+Alag se **Train AI** button bhi hai jo portfolio + pricing ko APPROVED
+knowledge me badalta hai (duplicate kabhi nahi banta, edit karne par rule
+refresh ho jata hai).
 
 ---
+
+## What the System Does (detail)
 
 ## What the System Does
 

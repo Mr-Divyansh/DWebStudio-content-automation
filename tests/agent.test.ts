@@ -1,5 +1,5 @@
-﻿/**
- * AUTONOMOUS AGENT â€” Synthetic tests.
+/**
+ * AUTONOMOUS AGENT — Synthetic tests.
  *
  * Uses only fake businesses ("Person A / Example Gym"). No private Instagram
  * content, no real websites, no network calls. Every test cleans up after

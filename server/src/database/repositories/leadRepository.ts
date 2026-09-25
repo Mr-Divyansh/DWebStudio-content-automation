@@ -140,23 +140,22 @@ export class LeadRepository {
   }
 
   static async getStats() {
-    const [
-      total,
-      newLeads,
-      qualified,
-      interested,
-      rejected,
-      followUps,
-      closed,
-    ] = await Promise.all([
-      prisma.lead.count(),
-      prisma.lead.count({ where: { status: 'NEW' } }),
-      prisma.lead.count({ where: { status: 'QUALIFIED' } }),
-      prisma.lead.count({ where: { OR: [{ status: 'INTERESTED' }, { intent: 'INTERESTED' }] } }),
-      prisma.lead.count({ where: { OR: [{ status: 'REJECTED' }, { intent: 'NOT_INTERESTED' }] } }),
-      prisma.lead.count({ where: { followUpNeeded: true } }),
-      prisma.lead.count({ where: { status: 'CLOSED' } }),
-    ]);
+  const next = new Date();
+  const [total, newLeads, qualified, outreachReady, interested, rejected, followUps, humanRequired, closed, conversations, learningInsights, errors, aiActivity] = await Promise.all([
+    prisma.lead.count(),
+    prisma.lead.count({ where: { status: 'NEW' } }),
+    prisma.lead.count({ where: { OR: [{ status: 'QUALIFIED' }, { status: 'OUTREACH_READY' }] } }),
+    prisma.lead.count({ where: { status: 'OUTREACH_READY' } }),
+    prisma.lead.count({ where: { OR: [{ status: 'INTERESTED' }, { intent: 'INTERESTED' }] } }),
+    prisma.lead.count({ where: { OR: [{ status: 'REJECTED' }, { intent: 'NOT_INTERESTED' }] } }),
+    prisma.lead.count({ where: { followUpNeeded: true, followUpNextAt: { lte: next } } }),
+    prisma.lead.count({ where: { status: 'HUMAN_REQUIRED' } }),
+    prisma.lead.count({ where: { status: 'CLOSED' } }),
+    prisma.conversation.count(),
+    prisma.learning.count(),
+    prisma.agentEvent.count({ where: { status: 'ERROR' } }),
+    prisma.analysis.count(),
+  ]);
 
     const niches = await prisma.lead.groupBy({
       by: ['niche'],
@@ -179,10 +178,16 @@ export class LeadRepository {
       total,
       newLeads,
       qualified,
+      outreachReady,
       interested,
       rejected,
       followUps,
+      humanRequired,
       closed,
+      conversations,
+      learningInsights,
+      errors,
+      aiActivity,
       niches: niches.map((n) => ({ niche: n.niche, count: n._count.id })),
       intents: intents.map((i) => ({ intent: i.intent, count: i._count.id })),
       sources: sources.map((s) => ({ source: s.source, count: s._count.id })),

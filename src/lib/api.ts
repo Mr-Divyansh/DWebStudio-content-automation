@@ -17,19 +17,45 @@ import {
   PricingRuleItem,
   InboundMessageItem,
   MessagingSettings,
+  AgentSetupReport,
+  AiTrainingReport,
+  AiActivationResult,
+  VaultKeyStatus,
 } from '../types';
 
 export const api = {
   // Config & Health
   async getConfig(): Promise<ConfigInfo> {
-    const res = await fetch('/api/config');
+    const res = await fetch('/api/config', { credentials: 'include' });
     if (!res.ok) throw new Error('Failed to fetch config');
     return res.json();
   },
 
+  async getAuthSession(): Promise<{ authenticated: boolean; required: boolean; configured: boolean }> {
+    const res = await fetch('/api/auth/session', { credentials: 'include' });
+    if (!res.ok) throw new Error('Failed to read session');
+    return res.json();
+  },
+
+  async login(password: string): Promise<{ success: boolean; required: boolean }> {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'Login failed');
+    return body;
+  },
+
+  async logout(): Promise<void> {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+  },
+
   // Dashboard
   async getDashboard(): Promise<DashboardStats> {
-    const res = await fetch('/api/dashboard');
+    const res = await fetch('/api/dashboard', { credentials: 'include' });
     if (!res.ok) throw new Error('Failed to fetch dashboard metrics');
     return res.json();
   },
@@ -195,6 +221,58 @@ export const api = {
     return res.json();
   },
 
+  /** The single ON/OFF switch for the whole AI. */
+  async setAgentEnabled(enabled: boolean): Promise<AgentStatus> {
+    const res = await fetch('/api/agent/enabled', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!res.ok) throw new Error('Failed to switch the AI on or off');
+    return res.json();
+  },
+
+  /**
+   * Real readiness checklist. Returns environment variable NAMES only, so the UI
+   * can tell the owner exactly which keys are still missing without ever
+   * receiving a secret value.
+   */
+  async getAgentSetup(): Promise<AgentSetupReport> {
+    const res = await fetch('/api/agent/setup');
+    if (!res.ok) throw new Error('Failed to fetch AI setup status');
+    return res.json();
+  },
+
+  /** Trains the AI on owner-authored portfolio + pricing knowledge (idempotent). */
+  async trainAgent(): Promise<AiTrainingReport> {
+    const res = await fetch('/api/agent/setup/train', { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to train the AI');
+    }
+    return res.json();
+  },
+
+  /** One press: train when needed, then switch the AI ON. */
+  async activateAgent(): Promise<AiActivationResult> {
+    const res = await fetch('/api/agent/setup/activate', { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to switch the AI on');
+    }
+    return res.json();
+  },
+
+  /** One press: switch the AI OFF and disable AUTO DM. */
+  async deactivateAgent(): Promise<AiActivationResult> {
+    const res = await fetch('/api/agent/setup/deactivate', { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to switch the AI off');
+    }
+    return res.json();
+  },
+
   async runAgentTick(): Promise<any> {
     const res = await fetch('/api/agent/tick', { method: 'POST' });
     if (!res.ok) throw new Error('Agent tick failed');
@@ -261,7 +339,7 @@ export const api = {
   },
 
   async getPricingRules(): Promise<PricingRuleItem[]> {
-    const res = await fetch('/api/agent/pricing');
+    const res = await fetch('/api/agent/pricing', { credentials: 'include' });
     if (!res.ok) throw new Error('Failed to fetch pricing rules');
     return res.json();
   },
@@ -408,5 +486,24 @@ export const api = {
     const res = await fetch('/api/portfolio');
     if (!res.ok) throw new Error('Failed to fetch portfolio');
     return res.json();
+  },
+
+  // Owner secret vault (UI se API keys — values kabhi wapas nahi aati)
+  async getVaultStatus(): Promise<{ keys: VaultKeyStatus[] }> {
+    const res = await fetch('/api/vault/status', { credentials: 'include' });
+    if (!res.ok) throw new Error('Failed to read saved keys');
+    return res.json();
+  },
+
+  async saveVaultSecrets(secrets: Record<string, string>): Promise<{ saved: string[]; keys: VaultKeyStatus[] }> {
+    const res = await fetch('/api/vault/save', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secrets }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'Keys save nahi ho payi');
+    return body;
   },
 };

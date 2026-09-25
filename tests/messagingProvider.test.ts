@@ -1,5 +1,5 @@
-﻿/**
- * OFFICIAL MESSAGING ADAPTER â€” Tests (100% mocked, zero network access).
+/**
+ * OFFICIAL MESSAGING ADAPTER — Tests (100% mocked, zero network access).
  *
  * Every test injects a fake `fetch`, so no real Meta API call is ever made and
  * no real message can be sent from the test suite.
@@ -78,7 +78,7 @@ export async function runMessagingProviderTests(): Promise<Result[]> {
     } as any);
     pass(
       'IG: config reads the page token and id from the environment',
-      cfg.pageAccessToken === VALID_TOKEN && cfg.pageId === VALID_PAGE && cfg.apiVersion === 'v21.0',
+      cfg.pageAccessToken === VALID_TOKEN && cfg.pageId === VALID_PAGE && cfg.apiVersion === 'v26.0',
     );
 
     /* 3. Missing credentials => not configured, never sends -------------------- */

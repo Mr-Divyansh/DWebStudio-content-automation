@@ -26,6 +26,12 @@ export interface PricingRuleInput {
   maxNegotiation: number;
   escalationAbove?: number | null;
   active?: boolean;
+  packageName?: string | null;
+  includedItems?: string | null;
+  deliveryEstimate?: string | null;
+  advancePayment?: string | null;
+  revisions?: string | null;
+  optionalExtras?: string | null;
   notes?: string | null;
 }
 
@@ -47,6 +53,16 @@ export function validatePricingRule(input: PricingRuleInput): { valid: true } | 
   return { valid: true };
 }
 
+export const pricingRuleDetailsSelect = {
+  packageName: true,
+  includedItems: true,
+  deliveryEstimate: true,
+  advancePayment: true,
+  revisions: true,
+  optionalExtras: true,
+  notes: true,
+} as const;
+
 export class PricingService {
   static async listRules() {
     return prisma.pricingRule.findMany({ orderBy: { service: 'asc' } });
@@ -66,6 +82,12 @@ export class PricingService {
         maxNegotiation: input.maxNegotiation,
         escalationAbove: input.escalationAbove ?? null,
         active: input.active ?? true,
+        packageName: input.packageName ?? null,
+        includedItems: input.includedItems ?? null,
+        deliveryEstimate: input.deliveryEstimate ?? null,
+        advancePayment: input.advancePayment ?? null,
+        revisions: input.revisions ?? null,
+        optionalExtras: input.optionalExtras ?? null,
         notes: input.notes ?? null,
       },
       update: {
@@ -76,6 +98,12 @@ export class PricingService {
         maxNegotiation: input.maxNegotiation,
         escalationAbove: input.escalationAbove ?? null,
         active: input.active ?? true,
+        packageName: input.packageName ?? null,
+        includedItems: input.includedItems ?? null,
+        deliveryEstimate: input.deliveryEstimate ?? null,
+        advancePayment: input.advancePayment ?? null,
+        revisions: input.revisions ?? null,
+        optionalExtras: input.optionalExtras ?? null,
         notes: input.notes ?? null,
       },
     });

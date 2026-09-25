@@ -1,15 +1,32 @@
 import { LearningRepository } from '../database/repositories/learningRepository.js';
 import { CorrectionRepository } from '../database/repositories/correctionRepository.js';
 import { LeadRepository } from '../database/repositories/leadRepository.js';
+import { AgentLearningStore } from '../agent/learningStore.js';
 
 export class LearningEngine {
   static async getContextForAnalysis(niche?: string) {
     const records = await LearningRepository.findRelevant(niche, 6);
-    return records.map((r) => ({
-      learning: r.learning,
-      type: r.type,
-      appliesTo: r.appliesTo,
-    }));
+    const approved = await AgentLearningStore.getApprovedContext(6);
+    return [
+      ...records
+        .filter((record) => record.source === 'USER_CORRECTION' || record.source === 'HUMAN_CORRECTION')
+        .map((r) => ({
+          learning: r.learning,
+          type: r.type,
+          appliesTo: r.appliesTo,
+          confidence: r.confidence,
+          evidence: r.evidence,
+          approval: 'HISTORICAL_MEMORY' as const,
+        })),
+      ...approved.map((r) => ({
+        learning: r.observation,
+        type: r.category,
+        appliesTo: 'All',
+        confidence: r.supportCount >= 3 && r.contradictionCount === 0 ? 'HIGH' : 'MEDIUM',
+        evidence: r.evidence,
+        approval: 'HUMAN_APPROVED' as const,
+      })),
+    ].slice(0, 8);
   }
 
   static async recordUserCorrection(params: {

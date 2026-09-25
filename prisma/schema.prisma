@@ -47,6 +47,9 @@ model Lead {
   portfolioMatch       String          @default("NO_MATCH")
   suggestedNextAction  String?
   confidence           String          @default("LOW")
+  opportunityScore     Int             @default(0)
+  opportunitySegment   String          @default("UNSCORED") // HOT | WARM | REVIEW | COLD | UNSCORED
+  scoreBreakdown       String?         // JSON array of deterministic score contributions
   evidence                   String?         // Stored as JSON string
   notes                      String?
   // Autonomous agent (additive, nullable/flag-only — never deletes existing data).
@@ -57,7 +60,18 @@ model Lead {
   // Instagram-scoped ID (IGSID) for the official Meta Messaging API. A @username
   // is NOT enough: Meta only issues an IGSID to a person who messaged the business
   // (or via an approved Meta flow), so this stays null for most researched leads.
-  instagramScopedId          String?
+  instagramScopedId          String?         @unique
+  // Set only after a verified inbound Meta webhook binds this IGSID to the lead.
+  // It prevents researched/cold leads from being treated as authorized conversations.
+  messagingAuthorizedAt      DateTime?
+  facebookPageUrl             String?
+  publicDiscoverySource       String?
+  lastInboundAt              DateTime?
+  lastOutboundAt             DateTime?
+  followUpAttempts           Int             @default(0)
+  followUpMaxAttempts        Int             @default(1)
+  followUpNextAt             DateTime?
+  conversationStage          String          @default("NEW")
   lastAgentActionAt          DateTime?
   createdAt                  DateTime        @default(now())
   updatedAt                  DateTime        @updatedAt
@@ -134,6 +148,11 @@ model Analysis {
   portfolioMatched    String        @default("NO_MATCH")
   suggestedAction     String?
   evidenceList        String?       // JSON string
+  conversationStage   String?       // NEW | QUALIFYING | INTERESTED | REQUIREMENTS | PRICING | ...
+  needsHuman          Boolean       @default(false)
+  needsRequirements   Boolean       @default(false)
+  asksPricing         Boolean       @default(false)
+  purchaseIntent      Boolean       @default(false)
   rawAiResponse       String?       // JSON string
   createdAt           DateTime      @default(now())
 
@@ -317,6 +336,9 @@ model LeadQualification {
   reasons        String   @default("[]") // JSON string array of structured reason objects
   portfolioMatch String   @default("null") // JSON string: { project, reason, confidence } (project may be null)
   nextAction     String
+  score           Int      @default(0)
+  segment         String   @default("UNSCORED")
+  scoreBreakdown  String   @default("[]")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -343,6 +365,12 @@ model AgentConfig {
   followUpDelayHours Int      @default(72)
   tickIntervalMs     Int      @default(15000)
   batchSize          Int      @default(3)
+  discoveryEnabled   Boolean  @default(false)
+  discoveryCity      String?
+  discoveryNiches    String   @default("[]") // JSON array of target categories
+  discoveryLimit     Int      @default(3)
+  lastDiscoveryAt    DateTime?
+  lastDiscoveryKey   String   @default("")
   currentTask        String?
   lastAction         String?
   nextAction         String?
@@ -434,6 +462,12 @@ model PricingRule {
   maxNegotiation  Int
   escalationAbove Int?
   active          Boolean  @default(true)
+  packageName           String?
+  includedItems         String?
+  deliveryEstimate      String?
+  advancePayment        String?
+  revisions             String?
+  optionalExtras        String?
   notes           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -448,6 +482,7 @@ model LearningEvent {
   category          String // OUTREACH_STYLE | QUALIFICATION | REPLY_ANALYSIS | PRICING
   observation       String
   humanAction       String?
+  evidence         String?   // JSON string array; never message bodies
   outcome           String?
   status            String   @default("PROPOSED") // PROPOSED | APPROVED | REJECTED | ARCHIVED
   supportCount      Int      @default(1)

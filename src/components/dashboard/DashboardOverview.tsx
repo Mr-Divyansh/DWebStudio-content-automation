@@ -11,15 +11,20 @@ import {
   Layers,
   Send,
   ExternalLink,
+  ShieldCheck,
+  MessageCircle,
 } from 'lucide-react';
 import { DashboardStats, LeadItem } from '../../types';
 import { Badge } from '../common/Badge';
+import { AiPowerCard } from '../agent/AiPowerCard';
 
 interface DashboardOverviewProps {
   stats: DashboardStats;
   onSelectLead: (leadId: string) => void;
   onNavigateToLeads: (filter?: { followUpOnly?: boolean }) => void;
   onOpenImport: () => void;
+  /** Jumps to the AI Control Center from the compact power card. */
+  onOpenAgent?: () => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -27,6 +32,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onSelectLead,
   onNavigateToLeads,
   onOpenImport,
+  onOpenAgent,
 }) => {
   const kpis = [
     {
@@ -42,6 +48,15 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       label: 'Qualified Leads',
       value: stats.qualified,
       icon: Target,
+      color: 'text-[#6FB2FF]',
+      bg: 'bg-[#142640]',
+      border: 'border-[#2F7EF2]/40',
+      action: () => onNavigateToLeads(),
+    },
+    {
+      label: 'Outreach Ready',
+      value: stats.outreachReady,
+      icon: Send,
       color: 'text-[#6FB2FF]',
       bg: 'bg-[#142640]',
       border: 'border-[#2F7EF2]/40',
@@ -67,6 +82,51 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       highlight: true,
     },
     {
+      label: 'Human Required',
+      value: stats.humanRequired,
+      icon: ShieldCheck,
+      color: 'text-[#FFD166]',
+      bg: 'bg-[#2A2315]',
+      border: 'border-[#8A6D1E]/50',
+      action: () => onNavigateToLeads(),
+    },
+    {
+      label: 'Conversations',
+      value: stats.conversations,
+      icon: MessageCircle,
+      color: 'text-[#6FB2FF]',
+      bg: 'bg-[#142640]',
+      border: 'border-[#2F7EF2]/40',
+      action: () => onNavigateToLeads(),
+    },
+    {
+      label: 'Learning Insights',
+      value: stats.learningInsights,
+      icon: Sparkles,
+      color: 'text-[#7EE787]',
+      bg: 'bg-[#152E20]',
+      border: 'border-[#238636]/40',
+      action: () => onNavigateToLeads(),
+    },
+    {
+      label: 'AI Activity',
+      value: stats.aiActivity,
+      icon: Sparkles,
+      color: 'text-[#F4F1EA]',
+      bg: 'bg-[#182333]',
+      border: 'border-[#2F7EF2]/30',
+      action: () => onNavigateToLeads(),
+    },
+    {
+      label: 'System Errors',
+      value: stats.errors,
+      icon: XCircle,
+      color: 'text-[#FF8E8E]',
+      bg: 'bg-[#2B1B1D]',
+      border: 'border-[#5A2B2F]/40',
+      action: () => onNavigateToLeads(),
+    },
+    {
       label: 'Disqualified / Rejected',
       value: stats.rejected,
       icon: XCircle,
@@ -88,6 +148,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* THE ONE SWITCH — start or stop the whole AI from the dashboard. */}
+      <AiPowerCard variant="compact" onOpenControlCenter={onOpenAgent} />
+
       {/* Welcome Banner */}
       <div className="p-6 rounded-2xl bg-gradient-to-r from-[#142133] via-[#0E1520] to-[#0C0F13] border border-[#2F7EF2]/30 flex items-center justify-between shadow-xl">
         <div className="space-y-1">
@@ -95,7 +158,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             D Web Studio Intelligence Dashboard
           </h2>
           <p className="text-xs text-[#C3CAD6] max-w-xl leading-relaxed">
-            Multi-source conversation intelligence for Instagram exports, WhatsApp, and discovery calls. Zero automated sending. Every lead strictly grounded in verifiable message evidence.
+            Multi-source conversation intelligence for Instagram exports, WhatsApp, and discovery calls. No cold
+            outreach ever: the AI only answers people who message you, and every lead stays grounded in verifiable
+            evidence.
           </p>
         </div>
 
@@ -109,7 +174,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       </div>
 
       {/* KPI Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
         {kpis.map((kpi, i) => {
           const Icon = kpi.icon;
           return (

@@ -25,10 +25,9 @@ import { LeadRepository } from '../database/repositories/leadRepository.js';
 import { ResearchService } from '../services/researchService.js';
 import { QualificationService } from '../services/qualificationService.js';
 import { LeadService } from '../services/leadService.js';
-import { getMessagingProvider, getMessagingStatus, hashMessage, OutboundChannel } from './messagingProvider.js';
-import { runSendSafetyGates, checkLeadMessagingAllowed, HUMAN_REQUIRED } from './safety.js';
+import { getMessagingStatus } from './messagingProvider.js';
+import { checkLeadMessagingAllowed, HUMAN_REQUIRED } from './safety.js';
 import { AgentLearningStore } from './learningStore.js';
-import { PricingService } from './pricing.js';
 import { isGeminiConfigured } from '../ai/gemini.js';
 
 const SINGLETON_ID = 'singleton';
@@ -37,6 +36,7 @@ const SINGLETON_ID = 'singleton';
 export const AGENT_STATUSES = {
   RESEARCHING: 'RESEARCHING',
   QUALIFIED: 'QUALIFIED',
+  OUTREACH_READY: 'OUTREACH_READY',
   OUTREACH_SENT: 'OUTREACH_SENT',
   AI_CONVERSATION: 'AI_CONVERSATION',
   INTERESTED: 'INTERESTED',
@@ -62,6 +62,10 @@ export interface AgentStatus {
     followUpDelayHours: number;
     tickIntervalMs: number;
     batchSize: number;
+    discoveryEnabled: boolean;
+    discoveryCity: string | null;
+    discoveryNiches: string[];
+    discoveryLimit: number;
   };
   counters: {
     leadsProcessed: number;
@@ -98,10 +102,55 @@ export interface TickReport {
 let timer: NodeJS.Timeout | null = null;
 let ticking = false;
 
+const DISCOVERY_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+async function discoverPublicLeads(config: any): Promise<number> {
+  if (!config.discoveryEnabled || !isGeminiConfigured()) return 0;
+  const city = String(config.discoveryCity || '').trim();
+  const niches = parseStringArray(config.discoveryNiches);
+  if (!city || niches.length === 0) return 0;
+  const key = `${city.toLowerCase()}|${niches.map((n) => n.toLowerCase()).sort().join(',')}`;
+  const lastAt = config.lastDiscoveryAt?.getTime?.() ?? 0;
+  const lastKey = String(config.lastDiscoveryKey || '');
+  if (key === lastKey && Date.now() - lastAt < DISCOVERY_INTERVAL_MS) return 0;
+  await prisma.agentConfig.update({ where: { id: SINGLETON_ID }, data: { lastDiscoveryAt: new Date(), lastDiscoveryKey: key } });
+  const { PublicDiscoveryService } = await import('../services/publicDiscoveryService.js');
+  const result = await PublicDiscoveryService.discover({
+    city: config.discoveryCity || '',
+    niches: parseStringArray(config.discoveryNiches),
+    limit: config.discoveryLimit,
+  });
+  await logEvent({
+    type: 'PUBLIC_DISCOVERY_COMPLETED',
+    message: `Public discovery created ${result.created} evidence-backed lead candidate(s); ${result.skipped} skipped.`,
+    status: 'SUCCESS',
+    details: { created: result.created, skipped: result.skipped, warnings: result.warnings.length },
+  });
+  return result.created;
+}
+
+function parseStringArray(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
 async function getConfig() {
   const existing = await prisma.agentConfig.findUnique({ where: { id: SINGLETON_ID } });
   if (existing) return existing;
-  return prisma.agentConfig.create({ data: { id: SINGLETON_ID } });
+  return prisma.agentConfig.create({
+    data: {
+      id: SINGLETON_ID,
+      discoveryEnabled: process.env.PUBLIC_DISCOVERY_ENABLED === 'true',
+      discoveryCity: (process.env.PUBLIC_DISCOVERY_CITY ?? '').trim() || null,
+      discoveryNiches: process.env.PUBLIC_DISCOVERY_NICHES?.trim() || '[]',
+      discoveryLimit: Math.max(1, Math.min(10, Number(process.env.PUBLIC_DISCOVERY_LIMIT ?? 3) || 3)),
+    },
+  });
 }
 
 async function logEvent(input: {
@@ -135,8 +184,6 @@ async function increment(fields: Record<string, number>) {
  * Every branch is wrapped so a throw is logged and counted, never fatal.
  */
 async function processLead(lead: any, config: any, report: TickReport): Promise<void> {
-  const provider = getMessagingProvider();
-
   const gate = checkLeadMessagingAllowed(lead);
   if (!gate.allowed && gate.code === 'OPT_OUT') {
     await logEvent({ type: 'SKIPPED_OPT_OUT', message: 'Lead skipped: opted out / do not contact.', leadId: lead.id });
@@ -240,111 +287,29 @@ async function processLead(lead: any, config: any, report: TickReport): Promise<
     return;
   }
 
-  // ---- 4. GATED SEND -------------------------------------------------------
-  const channel = (draft.channel || 'INSTAGRAM_DM') as OutboundChannel;
-  const contentHash = hashMessage(lead.id, draft.messageBody);
-  // Official APIs address people by platform-scoped ID, not @username.
-  const recipient = lead.instagramScopedId ?? null;
-
-  const verdict = await runSendSafetyGates({
-    lead,
-    leadId: lead.id,
-    contentHash,
-    channel,
-    autoDm: config.autoDm,
-    providerConfigured: provider.isConfigured,
-    providerAuthorized: await isProviderAuthorized(provider),
-    maxSendsPerHour: config.maxSendsPerHour,
-    maxSendsPerLead: config.maxSendsPerLead,
+  // ---- 4. HUMAN-REVIEWED OUTREACH ------------------------------------------
+  // Researched/cold leads are never passed to a provider. Meta's official API
+  // cannot initiate a conversation with an arbitrary IGSID, and a handle is not
+  // an IGSID. The evidence-backed draft remains available for operator review.
+  await LeadRepository.update(lead.id, {
+    status: AGENT_STATUSES.OUTREACH_READY,
+    conversationStage: 'QUALIFYING',
+    followUpNeeded: false,
+    followUpNextAt: null,
+    suggestedNextAction: 'Human operator must review the evidence-backed draft before any outreach.',
+    lastAgentActionAt: new Date(),
   });
-
-  if (!verdict.allowed) {
-    // Logged so the operator can see exactly what was prepared and why it stopped.
-    await prisma.outboundMessage.create({
-      data: {
-        leadId: lead.id,
-        channel,
-        recipient,
-        body: draft.messageBody,
-        contentHash,
-        status: 'BLOCKED',
-        provider: provider.name,
-        error: verdict.code,
-      },
-    });
-    await LeadRepository.update(lead.id, {
-      status: verdict.escalate ? AGENT_STATUSES.HUMAN_REQUIRED : AGENT_STATUSES.QUALIFIED,
-      lastAgentActionAt: new Date(),
-    });
-    report.blocked++;
-    await logEvent({
-      type: 'SEND_BLOCKED',
-      message: `Message not sent: ${verdict.reason}`,
-      status: verdict.escalate ? 'HUMAN_REQUIRED' : 'WARNING',
-      leadId: lead.id,
-      details: { code: verdict.code, escalate: verdict.escalate },
-    });
-    if (verdict.escalate) {
-      await increment({ humanRequired: 1 });
-      report.escalated++;
-    }
-    return;
-  }
-
-  const sendResult = await provider.send({
-    leadId: lead.id,
-    channel,
-    recipient: lead.instagramUsername ?? lead.email ?? null,
-    body: draft.messageBody,
-    contentHash,
-  });
-
-  await prisma.outboundMessage.create({
-    data: {
-      leadId: lead.id,
-      channel,
-      recipient,
-      body: draft.messageBody,
-      contentHash,
-      status: sendResult.status,
-      provider: sendResult.provider,
-      providerRef: sendResult.providerRef ?? null,
-      error: sendResult.error ?? null,
-    },
-  });
-
-  if (sendResult.status === 'SENT') {
-    await LeadRepository.update(lead.id, { status: AGENT_STATUSES.OUTREACH_SENT, lastAgentActionAt: new Date() });
-    await increment({ messagesSent: 1 });
-    report.sent++;
-    await logEvent({
-      type: 'MESSAGE_SENT',
-      message: `Message delivered via ${sendResult.provider}.`,
-      status: 'SUCCESS',
-      leadId: lead.id,
-    });
-    return;
-  }
-
-  if (sendResult.status === 'FAILED') {
-    await LeadRepository.update(lead.id, { status: AGENT_STATUSES.FAILED, lastAgentActionAt: new Date() });
-    await increment({ failed: 1 });
-    report.failed++;
-    await logEvent({ type: 'SEND_FAILED', message: sendResult.detail, status: 'ERROR', leadId: lead.id });
-    return;
-  }
-
-  // DRY_RUN: the honest outcome while no authorized provider is connected.
-  await LeadRepository.update(lead.id, { status: AGENT_STATUSES.QUALIFIED, lastAgentActionAt: new Date() });
-  report.dryRun++;
   await logEvent({
-    type: 'SEND_DRY_RUN',
-    message: sendResult.detail,
-    status: 'WARNING',
+    type: 'OUTREACH_READY',
+    message: "Evidence-backed outreach draft prepared. No message was sent; researched/cold leads cannot be cold-DM'd.",
+    status: 'HUMAN_REQUIRED',
     leadId: lead.id,
-    details: { provider: sendResult.provider },
+    details: { draftId: draft.id, channel: draft.channel },
   });
+  report.dryRun++;
+  return;
 }
+
 
 /* ------------------------------------------------------------------ control */
 
@@ -369,6 +334,10 @@ export class AutonomousAgent {
         followUpDelayHours: config.followUpDelayHours,
         tickIntervalMs: config.tickIntervalMs,
         batchSize: config.batchSize,
+        discoveryEnabled: config.discoveryEnabled,
+        discoveryCity: config.discoveryCity,
+        discoveryNiches: parseStringArray(config.discoveryNiches),
+        discoveryLimit: config.discoveryLimit,
       },
       counters: {
         leadsProcessed: config.leadsProcessed,
@@ -390,6 +359,49 @@ export class AutonomousAgent {
     };
   }
 
+  /**
+   * The single ON/OFF switch the owner needs.
+   *
+   *  ON  -> starts the run loop and enables AUTO DM only when an authorized
+   *         provider adapter is actually registered. Without one the AI runs in
+   *         DRAFT-ONLY mode: it researches, qualifies and drafts, but nothing can
+   *         be delivered because every send is refused by the safety gates.
+   *  OFF -> clears the timer, disables AUTO DM and stops the loop.
+   *
+   * START / PAUSE / STOP stay available for finer control; they are not removed.
+   */
+  static async setEnabled(enabled: boolean): Promise<AgentStatus> {
+    const config = await getConfig();
+
+    if (enabled) {
+      const providerConfigured = getMessagingStatus().configured;
+      if (config.autoDm !== providerConfigured) {
+        await prisma.agentConfig.update({
+          where: { id: SINGLETON_ID },
+          data: { autoDm: providerConfigured },
+        });
+      }
+      await logEvent({
+        type: 'AI_ENABLED',
+        message: providerConfigured
+          ? 'AI switched ON with AUTO DM enabled for authorized conversations.'
+          : 'AI switched ON in draft-only mode: no authorized messaging provider is connected, so nothing can be delivered.',
+        status: providerConfigured ? 'SUCCESS' : 'WARNING',
+      });
+      return this.start();
+    }
+
+    if (config.autoDm) {
+      await prisma.agentConfig.update({ where: { id: SINGLETON_ID }, data: { autoDm: false } });
+    }
+    await logEvent({
+      type: 'AI_DISABLED',
+      message: 'AI switched OFF. AUTO DM disabled and the run loop stopped.',
+      status: 'INFO',
+    });
+    return this.stop();
+  }
+
   static async setAutoDm(enabled: boolean) {
     await getConfig();
     await prisma.agentConfig.update({ where: { id: SINGLETON_ID }, data: { autoDm: enabled } });
@@ -397,6 +409,39 @@ export class AutonomousAgent {
       type: 'AUTO_DM_CHANGED',
       message: enabled ? 'AUTO DM enabled by operator.' : 'AUTO DM disabled by operator.',
       status: enabled ? 'WARNING' : 'INFO',
+    });
+    return this.getStatus();
+  }
+
+  static async configureDiscovery(input: {
+    enabled: boolean;
+    city: string;
+    niches: string[];
+    limit?: number;
+  }): Promise<AgentStatus> {
+    await getConfig();
+    const city = input.city.trim();
+    const niches = Array.from(new Set(input.niches.map((n) => n.trim()).filter(Boolean))).slice(0, 12);
+    if (input.enabled && !city) throw new Error('A discovery city is required when discovery is enabled.');
+    if (input.enabled && niches.length === 0) throw new Error('At least one target niche is required.');
+    const limit = Math.max(1, Math.min(10, input.limit ?? 3));
+    await prisma.agentConfig.update({
+      where: { id: SINGLETON_ID },
+      data: {
+        discoveryEnabled: input.enabled,
+        discoveryCity: city || null,
+        discoveryNiches: JSON.stringify(niches),
+        discoveryLimit: limit,
+        lastDiscoveryAt: null,
+        lastDiscoveryKey: '',
+      },
+    });
+    await logEvent({
+      type: 'DISCOVERY_CONFIGURED',
+      message: input.enabled
+        ? `Public discovery enabled for ${limit} candidate(s) per tick.`
+        : 'Public discovery disabled.',
+      status: input.enabled ? 'SUCCESS' : 'INFO',
     });
     return this.getStatus();
   }
@@ -452,7 +497,12 @@ export class AutonomousAgent {
 
   /** Human take-over: the AI must not message this lead until released. */
   static async takeOver(leadId: string) {
-    await LeadRepository.update(leadId, { aiPaused: true, status: AGENT_STATUSES.HUMAN_REQUIRED });
+    await LeadRepository.update(leadId, {
+      aiPaused: true,
+      status: AGENT_STATUSES.HUMAN_REQUIRED,
+      followUpNeeded: false,
+      followUpNextAt: null,
+    });
     await logEvent({
       type: 'HUMAN_TAKEOVER',
       message: 'Human took over this conversation. AI messaging suspended for this lead.',
@@ -471,7 +521,13 @@ export class AutonomousAgent {
 
   /** Records an opt-out and permanently blocks the AI for that lead. */
   static async optOut(leadId: string) {
-    await LeadRepository.update(leadId, { doNotContact: true, optOutAt: new Date(), aiPaused: true });
+    await LeadRepository.update(leadId, {
+      doNotContact: true,
+      optOutAt: new Date(),
+      aiPaused: true,
+      followUpNeeded: false,
+      followUpNextAt: null,
+    });
     await logEvent({
       type: 'OPT_OUT',
       message: 'Lead opted out. AI contact permanently disabled for this lead.',
@@ -486,11 +542,14 @@ export class AutonomousAgent {
    * no opt-outs, no human take-over, and only statuses that still need action.
    */
   static async selectCandidates(batchSize: number) {
+    // Only statuses that still need autonomous work are selected. OUTREACH_READY
+    // and later states are human/conversation states and must not be reprocessed
+    // on every tick (that would re-draft and re-log the same lead).
     return prisma.lead.findMany({
       where: {
         doNotContact: false,
         aiPaused: false,
-        status: { in: ['NEW', 'RESEARCHING', 'QUALIFIED', 'DRAFTED', 'APPROVED', 'REPLIED', 'SENT', 'OUTREACH_SENT'] },
+        status: { in: ['NEW', 'RESEARCHING', 'QUALIFIED'] },
       },
       orderBy: { updatedAt: 'asc' },
       take: Math.max(1, Math.min(batchSize, 20)),
@@ -531,6 +590,13 @@ export class AutonomousAgent {
         where: { id: SINGLETON_ID },
         data: { currentTask: leads.length ? `Processing ${leads.length} lead(s)` : 'Scanning for eligible leads' },
       });
+      await discoverPublicLeads(config).catch(async (err: any) => {
+        await logEvent({
+          type: 'PUBLIC_DISCOVERY_FAILED',
+          message: `Public discovery failed safely: ${err?.message || 'unknown error'}`,
+          status: 'ERROR',
+        });
+      });
 
       for (const lead of leads) {
         try {
@@ -562,25 +628,3 @@ export class AutonomousAgent {
     }
   }
 }
-
-/**
- * Live authorization check. Adapters exposing `checkAuthorization` are asked
- * directly; anything else is treated as NOT authorized so an unknown adapter can
- * never slip past the gate.
- */
-async function isProviderAuthorized(provider: {
-  isConfigured: boolean;
-  checkAuthorization?: (force?: boolean) => Promise<{ authorized: boolean }>;
-}): Promise<boolean> {
-  if (!provider.isConfigured) return false;
-  if (typeof provider.checkAuthorization !== 'function') return false;
-  try {
-    const result = await provider.checkAuthorization();
-    return result?.authorized === true;
-  } catch {
-    return false;
-  }
-}
-
-
-/** Maps an existing qualification result onto the agent's status vocabulary. */

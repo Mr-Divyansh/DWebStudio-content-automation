@@ -18,7 +18,6 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Never override an explicit value (e.g. a real test database in CI).
-if (!process.env.DATABASE_URL) {
-  process.env.DATABASE_URL = 'file:./dev.db';
-}
+// Tests always use the committed SQLite override. A production DATABASE_URL
+// must never be used accidentally by the local mocked test suite.
+process.env.DATABASE_URL = 'file:./prisma/dev.db';

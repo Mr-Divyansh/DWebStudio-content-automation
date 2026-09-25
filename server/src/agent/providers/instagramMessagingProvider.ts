@@ -1,5 +1,5 @@
-﻿/**
- * AUTONOMOUS AGENT â€” Instagram Messaging Provider (OFFICIAL META GRAPH API)
+/**
+ * AUTONOMOUS AGENT — Instagram Messaging Provider (OFFICIAL META GRAPH API)
  * ============================================================================
  * The only adapter that talks to a real platform, using Meta's official,
  * authorized Instagram Messaging API. It is deliberately NOT an Instagram
@@ -18,7 +18,7 @@
  * CRITICAL PLATFORM CONSTRAINT (not a bug in this code):
  *  The API requires the recipient's Instagram-scoped ID (IGSID). An IGSID is
  *  only available for someone who has messaged the business or through an
- *  approved Meta flow â€” it can NEVER be looked up from an @username. A lead
+ *  approved Meta flow — it can NEVER be looked up from an @username. A lead
  *  that only has a handle therefore cannot be messaged. This adapter returns an
  *  explicit failure instead of pretending, and never falls back to unofficial
  *  methods such as browser automation or cookie replay.
@@ -40,7 +40,7 @@ import {
 } from '../instagramWebhook.js';
 
 const GRAPH_BASE = 'https://graph.facebook.com';
-const DEFAULT_API_VERSION = 'v21.0';
+const DEFAULT_API_VERSION = 'v26.0';
 const MAX_TEXT_BYTES = 1000;
 const AUTH_CACHE_MS = 10 * 60 * 1000;
 
@@ -84,7 +84,9 @@ export class InstagramMessagingProvider implements MessagingProvider {
   /** The official Instagram Messaging API supports inbound webhooks. */
   readonly supportsInbound = true;
   /** Webhook is only ready once the verify token and app secret are present. */
-  readonly inboundReady = true;
+  get inboundReady(): boolean {
+    return this.isConfigured;
+  }
   private auth: AuthCheck | null = null;
   private fetchImpl: FetchLike;
 

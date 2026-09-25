@@ -7,7 +7,7 @@
  * documented, reproducible rules (see AUDIT_RULES) classify a link as booking/contact/social.
  *
  * Uses the existing project dependency `node-html-parser` and the P8 safe HTTP client.
- * No new dependency is introduced (the `ai-search-audit` npm package was inspected and rejected â€”
+ * No new dependency is introduced (the `ai-search-audit` npm package was inspected and rejected —
  * it is unpublished from the npm registry and its `dist/` output is build-only, so it cannot be
  * installed from either the registry or a git URL).
  */

@@ -84,13 +84,26 @@ export function checkFollowUpDelay(lastSentAt: Date | null, followUpDelayHours: 
 
 /** A message needs somewhere to go. */
 export function checkRecipient(
-  lead: { instagramUsername?: string | null; email?: string | null; phone?: string | null },
+  lead: {
+    instagramUsername?: string | null;
+    instagramScopedId?: string | null;
+    facebookPageUrl?: string | null;
+    publicDiscoverySource?: string | null;
+    messagingAuthorizedAt?: Date | null;
+    email?: string | null;
+    phone?: string | null;
+  },
   channel: string,
 ): SafetyVerdict {
   if (channel === 'EMAIL' && !lead.email) return deny('NO_CONTACT_DETAILS', 'No public email on file for this lead.', true);
   if (channel === 'WHATSAPP' && !lead.phone) return deny('NO_CONTACT_DETAILS', 'No public phone on file for this lead.', true);
-  if (channel === 'INSTAGRAM_DM' && !lead.instagramUsername) {
-    return deny('NO_CONTACT_DETAILS', 'No Instagram handle on file for this lead.', true);
+  if (channel === 'INSTAGRAM_DM') {
+    if (!lead.instagramScopedId) {
+      return deny('IGSID_REQUIRED', 'No Instagram-scoped ID is available; official Meta messaging cannot target this lead.', true);
+    }
+    if (!lead.messagingAuthorizedAt) {
+      return deny('INBOUND_AUTHORIZATION_REQUIRED', 'This lead has not started an authorized inbound Meta conversation.', true);
+    }
   }
   return ALLOW;
 }
@@ -141,6 +154,24 @@ export async function runSendSafetyGates(params: {
   const leadGate = checkLeadMessagingAllowed(params.lead);
   if (!leadGate.allowed) return leadGate;
 
+  if (!params.providerConfigured) {
+    return deny(
+      'MESSAGE_PROVIDER_NOT_CONFIGURED',
+      'Messaging integration required — no authorized provider connected.',
+      false,
+    );
+  }
+
+  // The provider must have positively confirmed authorization. A configured-but-
+  // unauthorized adapter (e.g. revoked token, missing permission) must not send.
+  if (params.providerAuthorized !== true) {
+    return deny(
+      'PROVIDER_NOT_AUTHORIZED',
+      'Messaging provider is configured but has not confirmed authorization. Nothing was sent.',
+      true,
+    );
+  }
+
   const recipientGate = checkRecipient(params.lead, params.channel);
   if (!recipientGate.allowed) return recipientGate;
 
@@ -152,24 +183,6 @@ export async function runSendSafetyGates(params: {
 
   const rateGate = await checkHourlyRateLimit(params.maxSendsPerHour);
   if (!rateGate.allowed) return rateGate;
-
-  if (!params.providerConfigured) {
-    return deny(
-      'MESSAGE_PROVIDER_NOT_CONFIGURED',
-      'Messaging integration required — no authorized provider connected.',
-      false,
-    );
-  }
-
-  // The provider must have positively confirmed authorization. A configured-but-
-  // unauthorized adapter (e.g. revoked token, missing permission) must not send.
-  if (params.providerAuthorized === false) {
-    return deny(
-      'PROVIDER_NOT_AUTHORIZED',
-      'Messaging provider is configured but has not confirmed authorization. Nothing was sent.',
-      true,
-    );
-  }
 
   return ALLOW;
 }

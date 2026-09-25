@@ -1,5 +1,5 @@
-﻿/**
- * INSTAGRAM WEBHOOK + REPLY ENGINE â€” Tests.
+/**
+ * INSTAGRAM WEBHOOK + REPLY ENGINE — Tests.
  * All fully mocked. No real network call and no real message is ever sent.
  */
 

@@ -6,7 +6,20 @@ export const dashboardRouter = Router();
 
 dashboardRouter.get('/', async (_req, res) => {
   try {
-    const stats = await LeadService.getDashboardStats();
+    const [stats, conversations, recentEvents, recentOutbound] = await Promise.all([
+      LeadService.getDashboardStats(),
+      prisma.conversation.count(),
+      prisma.agentEvent.findMany({
+        take: 8,
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, type: true, status: true, message: true, createdAt: true },
+      }),
+      prisma.outboundMessage.findMany({
+        take: 8,
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, status: true, provider: true, createdAt: true },
+      }),
+    ]);
 
     // Recent activity log (latest leads, analyses, drafts)
     const recentLeads = await prisma.lead.findMany({
@@ -46,6 +59,9 @@ dashboardRouter.get('/', async (_req, res) => {
 
     res.json({
       ...stats,
+      conversations,
+      recentEvents,
+      recentOutbound,
       recentLeads,
       recentDrafts,
       recentLearnings,

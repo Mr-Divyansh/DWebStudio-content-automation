@@ -1,4 +1,4 @@
-import { getGeminiClient, GEMINI_MODEL } from './gemini.js';
+import { getGeminiClient, generateGeminiJson } from './gemini.js';
 import {
   ConversationAnalysisSchema,
   ConversationAnalysis,
@@ -6,6 +6,8 @@ import {
   OutreachDraftResult,
   LearningExtractionSchema,
   LearningExtractionResult,
+  ReplyAnalysisSchema,
+  ReplyAnalysis,
   BusinessResearchProfileSchema,
   BusinessResearchProfile,
 } from './schemas/leadSchemas.js';
@@ -14,6 +16,7 @@ import {
   buildOutreachDraftPrompt,
   buildLearningExtractionPrompt,
   buildBusinessResearchPrompt,
+  buildReplyAnalysisPrompt,
 } from './prompts/analysisPrompts.js';
 import fs from 'fs';
 import path from 'path';
@@ -174,20 +177,10 @@ export class ConversationAnalyzer {
     });
 
     try {
-      const response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: userPrompt,
-        config: {
-          systemInstruction,
-          responseMimeType: 'application/json',
-          temperature: 0.2, // Low temperature for factual precision
-        },
-      });
-
-      const responseText = response.text || '{}';
-      const cleanedJson = cleanJsonString(responseText);
-      const parsedData = JSON.parse(cleanedJson);
-      const validated = ConversationAnalysisSchema.parse(parsedData);
+      const validated = await generateGeminiJson(
+        { systemInstruction, userPrompt, temperature: 0.2, maxOutputTokens: 4_096 },
+        (value) => ConversationAnalysisSchema.parse(value),
+      );
 
       return {
         analysis: validated,
@@ -204,6 +197,92 @@ export class ConversationAnalyzer {
     }
   }
 
+  static async analyzeReply(options: {
+    inboundText: string;
+    leadInfo: any;
+    currentStage: string;
+    previousMessages?: Array<{ senderType: string; content: string; timestamp: Date | string }>;
+    relevantLearnings?: Array<{ learning: string; appliesTo: string; type: string }>;
+  }): Promise<{ analysis: ReplyAnalysis; isAiGenerated: boolean; warning?: string }> {
+    const previous = (options.previousMessages || [])
+      .slice(-20)
+      .map((m) => `[${m.senderType}] ${String(m.content).slice(0, 2_000)}`)
+      .join('\n');
+    const contextLead = { ...options.leadInfo, previousMessages: previous };
+    const { systemInstruction, userPrompt } = buildReplyAnalysisPrompt({
+      inboundText: options.inboundText,
+      leadInfo: contextLead,
+      previousMessages: previous,
+      currentStage: options.currentStage,
+      relevantLearnings: options.relevantLearnings || [],
+    });
+
+    if (!getGeminiClient()) {
+      return {
+        analysis: this.heuristicReplyAnalysis(options.inboundText, options.currentStage),
+        isAiGenerated: false,
+        warning: 'Gemini not configured; deterministic reply analysis used.',
+      };
+    }
+
+    try {
+      const analysis = await generateGeminiJson(
+        { systemInstruction, userPrompt, temperature: 0.1, maxOutputTokens: 2_048 },
+        (value) => ReplyAnalysisSchema.parse(value),
+      );
+      const normalizedInbound = options.inboundText.toLowerCase();
+      const unsupportedEvidence = analysis.evidence.some((quote) => !normalizedInbound.includes(quote.toLowerCase()));
+      if (unsupportedEvidence || analysis.confidence === 'LOW') {
+        return {
+          analysis: this.heuristicReplyAnalysis(options.inboundText, options.currentStage),
+          isAiGenerated: false,
+          warning: 'AI reply analysis failed evidence/confidence checks; deterministic analysis used.',
+        };
+      }
+      return { analysis, isAiGenerated: true };
+    } catch {
+      return {
+        analysis: this.heuristicReplyAnalysis(options.inboundText, options.currentStage),
+        isAiGenerated: false,
+        warning: 'AI reply analysis failed; deterministic analysis used.',
+      };
+    }
+  }
+
+  private static heuristicReplyAnalysis(text: string, currentStage: string): ReplyAnalysis {
+    const lower = text.toLowerCase();
+    const evidence = [text.trim().slice(0, 240)].filter(Boolean);
+    const base = {
+      intent: 'NEUTRAL' as const,
+      confidence: 'LOW' as const,
+      evidence,
+      reason: 'Deterministic classification from the inbound message.',
+      objection: null,
+      suggestedNextAction: 'Human review required because intent is uncertain.',
+      needsHuman: true,
+      needsRequirements: false,
+      asksPricing: false,
+      purchaseIntent: false,
+    };
+    if (/\b(not interested|no thanks|stop messaging|do not contact)\b/i.test(lower)) {
+      return { ...base, stage: 'NOT_INTERESTED', intent: 'NOT_INTERESTED', confidence: 'HIGH', needsHuman: false, suggestedNextAction: 'Stop all follow-up.' };
+    }
+    if (/\b(price|pricing|cost|quote|budget|how much|charges?)\b/i.test(lower)) {
+      return { ...base, stage: 'PRICING', intent: 'POSSIBLY_INTERESTED', asksPricing: true, suggestedNextAction: 'Answer only from an active configured pricing rule.' };
+    }
+    if (/\b(ready|proposal|contract|get started|book a call|schedule a call|yes,? let'?s)\b/i.test(lower)) {
+      return { ...base, stage: 'READY_TO_BUY', intent: 'INTERESTED', confidence: 'MEDIUM', purchaseIntent: true, suggestedNextAction: 'Confirm requirements and hand the closing details to a human.' };
+    }
+    if (/\b(interested|need|want|looking for|redesign|website)\b/i.test(lower)) {
+      return { ...base, stage: 'QUALIFYING', intent: 'POSSIBLY_INTERESTED', needsRequirements: true, suggestedNextAction: 'Ask one bounded requirements question.' };
+    }
+    const safeStages = ['NEW', 'QUALIFYING', 'INTERESTED', 'REQUIREMENTS', 'PRICING', 'FOLLOW_UP'] as const;
+    const stage = safeStages.includes(currentStage as (typeof safeStages)[number])
+      ? (currentStage as (typeof safeStages)[number])
+      : 'QUALIFYING';
+    return { ...base, stage };
+  }
+
   static async generateOutreachDraft(options: {
     leadInfo: any;
     evidence: any[];
@@ -214,49 +293,50 @@ export class ConversationAnalyzer {
 
     if (!ai) {
       const niche = options.leadInfo.niche !== 'UNKNOWN' ? options.leadInfo.niche : 'business';
-      const name = options.leadInfo.personName !== 'UNKNOWN' ? options.leadInfo.personName : 'there';
-      const portfolioRef = options.matchedPortfolio ? ` Like how we helped ${options.matchedPortfolio.title}: ${options.matchedPortfolio.results}.` : '';
-
-      return {
-        draft: {
-          channel: 'INSTAGRAM_DM',
-          messageBody: `Hey ${name}! Saw your work in the ${niche} space. We build custom high-converting sites for businesses looking to scale inquiries.${portfolioRef} Would love to send over a quick 2-minute video breakdown of how we'd approach your site if you're open to it?`,
-          personalizationReason: `Direct reference to ${niche} industry and verified portfolio match.`,
-          evidenceUsed: [`Lead operates in ${niche} niche`],
-          confidence: 'MEDIUM',
-        },
-        isAiGenerated: false,
-      };
+    const name = options.leadInfo.personName && options.leadInfo.personName !== 'UNKNOWN'
+      ? options.leadInfo.personName
+      : options.leadInfo.businessName && options.leadInfo.businessName !== 'UNKNOWN'
+        ? options.leadInfo.businessName
+        : 'there';
+    const evidenceFact = options.evidence.find((item) => typeof item?.evidence === 'string' && item.evidence.trim())?.evidence;
+    const evidenceReference = evidenceFact ? ` I noticed one public detail worth checking: "${String(evidenceFact).slice(0, 180)}".` : '';
+    const portfolioRef = options.matchedPortfolio
+      ? ` We have a relevant ${options.matchedPortfolio.title} example${options.matchedPortfolio.results ? `: ${options.matchedPortfolio.results}` : ''}.`
+      : '';
+    return {
+      draft: {
+        channel: 'INSTAGRAM_DM',
+        messageBody: `Hi ${name}, I came across ${niche === 'business' ? 'your business' : `your ${niche} business`}.${evidenceReference}${portfolioRef} If a clearer website could help, I can share a short relevant outline for your review.`,
+        personalizationReason: evidenceFact ? 'References one stored public evidence item and an existing portfolio match.' : 'Uses only the verified business category; no unverified business claim is made.',
+        evidenceUsed: evidenceFact ? [evidenceFact] : [`Verified category: ${niche}`],
+        confidence: evidenceFact ? 'MEDIUM' : 'LOW',
+      },
+      isAiGenerated: false,
+    };
     }
 
     const { systemInstruction, userPrompt } = buildOutreachDraftPrompt(options);
 
     try {
-      const response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: userPrompt,
-        config: {
-          systemInstruction,
-          responseMimeType: 'application/json',
-          temperature: 0.4,
-        },
+      const validated = await generateGeminiJson(
+        { systemInstruction, userPrompt, temperature: 0.4, maxOutputTokens: 2_048 },
+        (value) => OutreachDraftSchema.parse(value),
+      );
+      const evidenceText = options.evidence.map((item) => `${item?.claim || ''} ${item?.evidence || ''}`).join(' ').toLowerCase();
+      const unsupportedEvidence = validated.evidenceUsed.some((item) => {
+        const text = String(item).toLowerCase();
+        return text && !evidenceText.includes(text) && !options.leadInfo.niche.toLowerCase().includes(text);
       });
+      if (unsupportedEvidence) throw new Error('Generated draft cited unsupported evidence.');
 
-      const cleaned = cleanJsonString(response.text || '{}');
-      const parsed = JSON.parse(cleaned);
-      const validated = OutreachDraftSchema.parse(parsed);
-
-      return {
-        draft: validated,
-        isAiGenerated: true,
-      };
+      return { draft: validated, isAiGenerated: true };
     } catch (err) {
       console.error('Failed to generate outreach draft with Gemini:', err);
       return {
         draft: {
           channel: 'INSTAGRAM_DM',
-          messageBody: `Hi ${options.leadInfo.personName !== 'UNKNOWN' ? options.leadInfo.personName : 'there'}! Reaching out from D Web Studio regarding your website inquiry. Let us know a convenient time to discuss your requirements.`,
-          personalizationReason: 'Fallback outreach draft',
+          messageBody: 'I cannot safely draft a personalized message from the available verified information. A human operator should review this lead before any outreach.',
+          personalizationReason: 'Safe fallback after AI failure; no unverified claim is introduced.',
           evidenceUsed: [],
           confidence: 'LOW',
         },
@@ -276,19 +356,10 @@ export class ConversationAnalyzer {
     const { systemInstruction, userPrompt } = buildLearningExtractionPrompt(options);
 
     try {
-      const response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: userPrompt,
-        config: {
-          systemInstruction,
-          responseMimeType: 'application/json',
-          temperature: 0.2,
-        },
-      });
-
-      const cleaned = cleanJsonString(response.text || '{}');
-      const parsed = JSON.parse(cleaned);
-      const validated = LearningExtractionSchema.parse(parsed);
+      const validated = await generateGeminiJson(
+        { systemInstruction, userPrompt, temperature: 0.2, maxOutputTokens: 2_048 },
+        (value) => LearningExtractionSchema.parse(value),
+      );
 
       if (validated.learning === 'NO_GENERALIZABLE_LEARNING') {
         return { learning: null, isAiGenerated: true };
@@ -350,19 +421,10 @@ export class ConversationAnalyzer {
     });
 
     try {
-      const response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: userPrompt,
-        config: {
-          systemInstruction,
-          responseMimeType: 'application/json',
-          temperature: 0.1, // Lowest temperature: classification only, no creativity
-        },
-      });
-
-      const cleaned = cleanJsonString(response.text || '{}');
-      const parsed = JSON.parse(cleaned);
-      const validated = BusinessResearchProfileSchema.parse(parsed);
+      const validated = await generateGeminiJson(
+        { systemInstruction, userPrompt, temperature: 0.1, maxOutputTokens: 2_048 },
+        (value) => BusinessResearchProfileSchema.parse(value),
+      );
       const { profile, dropped } = verifyQuotedResearchProfile(validated, {
         pageExtract: extract,
         deterministicFacts: options.deterministicFacts,

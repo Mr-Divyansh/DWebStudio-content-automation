@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   X,
   Sparkles,
@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { LeadItem, PortfolioProjectItem, LeadResearchOutcome, BusinessResearchItem, LeadQualificationOutcome, QualificationReason, PortfolioMatchItem } from '../../types';
 import { Badge } from '../common/Badge';
+import { ChatButtons } from './LeadTable';
 import { api } from '../../lib/api';
 
 /** Safely reads a JSON string-array column coming from the API (never throws). */
@@ -150,6 +151,9 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
             confidence: 'LOW',
           }),
           nextAction: storedQualification.nextAction,
+          score: storedQualification.score || 0,
+          segment: storedQualification.segment || 'UNSCORED',
+          scoreBreakdown: parseJsonObject<Array<{ signal: string; points: number; evidenceIds: string[] }>>(storedQualification.scoreBreakdown || '[]', []),
           cached: true,
         }
       : null;
@@ -314,6 +318,9 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
                 </h2>
                 <Badge type="intent" value={lead.intent} />
                 <Badge type="status" value={lead.status} />
+                <div className="hidden sm:block">
+                  <ChatButtons lead={lead} compact />
+                </div>
                 {lead.followUpNeeded && (
                   <span className="text-[11px] px-2 py-0.5 rounded bg-[#2F7EF2]/20 text-[#6FB2FF] border border-[#2F7EF2]/40 font-medium">
                     Follow-Up Due
@@ -426,6 +433,16 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
             }`}
           >
             Public Web Research {latestResearch ? `(${latestResearch.status})` : ''}
+          </button>
+          <button
+            onClick={() => setActiveTab('qualification')}
+            className={`py-3 text-xs font-semibold tracking-wide border-b-2 transition-all ${
+              activeTab === 'qualification'
+                ? 'border-[#2F7EF2] text-[#6FB2FF]'
+                : 'border-transparent text-[#8C98A9] hover:text-[#C3CAD6]'
+            }`}
+          >
+            Qualification {latestQualification ? `(${latestQualification.score})` : ''}
           </button>
         </div>
 
@@ -1132,6 +1149,52 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
                   No public research stored for this lead yet. Enter the business website above and run
                   research. Every stored value keeps its source URL and fetch time, and unknown stays unknown.
                 </p>
+              )}
+            </div>
+          )}
+
+          {/* TAB 6: DETERMINISTIC QUALIFICATION */}
+          {activeTab === 'qualification' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-4 rounded-xl bg-[#12171F] border border-[#1E2734]">
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-wider text-[#8C98A9]">Qualification score</div>
+                  <div className="text-2xl font-bold text-[#F4F1EA] mt-1">{latestQualification?.score ?? 0}<span className="text-sm text-[#8C98A9]"> / 100</span></div>
+                  <div className="text-[11px] text-[#6FB2FF] mt-1">Segment: {latestQualification?.segment || 'UNSCORED'} · display-only</div>
+                </div>
+                <button onClick={() => handleRunQualification(true)} disabled={isQualifying} className="px-3 py-2 rounded-lg bg-[#141A22] border border-[#1E2734] text-xs text-[#C3CAD6] disabled:opacity-50">
+                  {isQualifying ? 'Evaluating…' : 'Re-evaluate'}
+                </button>
+              </div>
+              {latestQualification ? (
+                <>
+                  <div className="p-4 rounded-xl bg-[#12171F] border border-[#1E2734] space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-1 rounded border text-xs font-semibold ${QUALIFICATION_STATUS_STYLES[latestQualification.status] || ''}`}>{latestQualification.status}</span>
+                      <span className="text-xs text-[#8C98A9]">Confidence: {latestQualification.confidence}</span>
+                    </div>
+                    <p className="text-xs text-[#C3CAD6]">{latestQualification.nextAction}</p>
+                    <div className="space-y-2">
+                      {latestQualification.reasons.map((reason, index) => (
+                        <div key={`${reason.ruleId}-${index}`} className="p-3 rounded-lg bg-[#0C0F13] border border-[#1E2734]">
+                          <div className="text-xs font-semibold text-[#F4F1EA]">{reason.ruleId} · {reason.type}</div>
+                          <p className="text-xs text-[#C3CAD6] mt-1">{reason.reason}</p>
+                          {reason.evidenceIds.length > 0 && <p className="text-[10px] font-mono text-[#6FB2FF] mt-1">Evidence: {reason.evidenceIds.join(', ')}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-[#12171F] border border-[#1E2734] space-y-2">
+                    <div className="text-xs font-bold uppercase tracking-wider text-[#8C98A9]">Score breakdown</div>
+                    {latestQualification.scoreBreakdown.map((item, index) => (
+                      <div key={`${item.signal}-${index}`} className="flex justify-between text-xs text-[#C3CAD6]">
+                        <span>{item.signal}</span><span className="font-mono">{item.points > 0 ? '+' : ''}{item.points}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-[#8C98A9]">No deterministic qualification has been run for this lead.</p>
               )}
             </div>
           )}

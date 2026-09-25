@@ -2,6 +2,12 @@ import { prisma } from './client.js';
 
 export async function seedDatabase() {
   try {
+    // Demo records are useful locally but must never be written to a production
+    // database. Production starts empty and is populated only by verified imports,
+    // public research, or explicit operator actions.
+    if (process.env.NODE_ENV === 'production' && process.env.SEED_DEMO_DATA !== 'true') {
+      return;
+    }
     const portfolioCount = await prisma.portfolioProject.count();
     if (portfolioCount === 0) {
       console.log('Seeding initial portfolio projects from knowledge base...');

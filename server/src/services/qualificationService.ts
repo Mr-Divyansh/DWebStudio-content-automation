@@ -37,6 +37,12 @@ export interface PortfolioMatchResult {
   confidence: QualificationConfidence;
 }
 
+export interface QualificationScoreSignal {
+  signal: string;
+  points: number;
+  evidenceIds: string[];
+}
+
 export interface QualificationOutcome {
   id?: string;
   createdAt?: Date;
@@ -45,6 +51,9 @@ export interface QualificationOutcome {
   reasons: QualificationReason[];
   portfolioMatch: PortfolioMatchResult;
   nextAction: string;
+  score: number;
+  segment: string;
+  scoreBreakdown: QualificationScoreSignal[];
   ruleTrace: Array<{ ruleId: string; fired: boolean; note: string }>;
   evidence: Array<{ id: string; sourceUrl: string | null; observation: string | null; fetchedAt: Date | null }>;
   researchCount: number;
@@ -411,6 +420,25 @@ function nextActionFor(status: QualificationStatus): string {
   return 'Verify the business website/profile manually, then run qualification again.';
 }
 
+function scoreQualification(reasons: QualificationReason[], evidence: any[]): { score: number; segment: string; breakdown: QualificationScoreSignal[] } {
+  const breakdown: QualificationScoreSignal[] = [];
+  const hasEvidence = (ids: string[]) => ids.length > 0;
+  for (const reason of reasons) {
+    if (!hasEvidence(reason.evidenceIds)) continue;
+    const points = reason.type === 'EXPLICIT_REQUEST' ? 40 :
+      reason.type === 'EXCLUSION' ? -40 :
+      reason.ruleId === 'WEB-STRONG-001' ? 20 :
+      reason.ruleId === 'WEB-BOOKING-001' || reason.ruleId === 'WEB-CONTACT-001' ? 10 : 5;
+    breakdown.push({ signal: reason.ruleId, points, evidenceIds: reason.evidenceIds });
+  }
+  if (breakdown.length === 0) {
+    return { score: 0, segment: 'UNSCORED', breakdown: [{ signal: 'NO_SCORED_EVIDENCE', points: 0, evidenceIds: [] }] };
+  }
+  const score = Math.max(0, Math.min(100, breakdown.reduce((sum, item) => sum + item.points, 0)));
+  const segment = score >= 60 ? 'HOT' : score >= 30 ? 'WARM' : score > 0 ? 'REVIEW' : 'COLD';
+  return { score, segment, breakdown };
+}
+
 /* -------------------------------------------------------- portfolio matching */
 
 async function matchPortfolio(latest: any | undefined, leadNiche: string): Promise<PortfolioMatchResult> {
@@ -470,6 +498,7 @@ export class QualificationService {
     const ruleResults = QUALIFICATION_RULES.map((rule) => rule.evaluate(ctx));
     const { status, reasons } = combineResults(ruleResults);
     const confidence = computeConfidence(status, reasons, evidenceRows.length);
+    const scored = scoreQualification(reasons, evidenceRows);
     const portfolioMatch = await matchPortfolio(researchRows[0], lead.niche);
     const nextAction = nextActionFor(status);
 
@@ -489,6 +518,9 @@ export class QualificationService {
       reasons,
       portfolioMatch,
       nextAction,
+      score: scored.score,
+      segment: scored.segment,
+      scoreBreakdown: scored.breakdown,
       ruleTrace: ruleResults.map((rule) => ({ ruleId: rule.ruleId, fired: rule.fired, note: rule.note })),
       evidence,
       researchCount: researchRows.length,
@@ -521,6 +553,20 @@ export class QualificationService {
         reasons: JSON.stringify(reasons),
         portfolioMatch: JSON.stringify(portfolioMatch),
         nextAction,
+        score: scored.score,
+        segment: scored.segment,
+        scoreBreakdown: JSON.stringify(scored.breakdown),
+      },
+    });
+
+    await prisma.lead.update({
+      where: { id: leadId },
+      data: {
+        qualification: status === 'QUALIFIED' ? 'QUALIFIED' : status === 'NOT_QUALIFIED' ? 'DISQUALIFIED' : 'PENDING_INFO',
+        qualificationReason: reasons.map((reason) => reason.reason).join(' '),
+        opportunityScore: scored.score,
+        opportunitySegment: scored.segment,
+        scoreBreakdown: JSON.stringify(scored.breakdown),
       },
     });
 

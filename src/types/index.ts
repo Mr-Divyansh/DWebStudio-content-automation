@@ -2,12 +2,20 @@ export type LeadStatus =
   | 'NEW'
   | 'RESEARCHING'
   | 'QUALIFIED'
+  | 'OUTREACH_READY'
+  | 'OUTREACH_SENT'
   | 'REJECTED'
+  | 'NOT_INTERESTED'
   | 'DRAFTED'
+  | 'APPROVED'
   | 'SENT'
   | 'REPLIED'
   | 'INTERESTED'
+  | 'AI_CONVERSATION'
+  | 'FOLLOW_UP'
   | 'HANDOFF'
+  | 'HUMAN_REQUIRED'
+  | 'FAILED'
   | 'CLOSED';
 
 export type LeadIntent =
@@ -150,6 +158,9 @@ export interface LeadQualificationOutcome {
   reasons: QualificationReason[];
   portfolioMatch: PortfolioMatchItem;
   nextAction: string;
+  score: number;
+  segment: string;
+  scoreBreakdown: Array<{ signal: string; points: number; evidenceIds: string[] }>;
   ruleTrace?: Array<{ ruleId: string; fired: boolean; note: string }>;
   evidence?: Array<{ id: string; sourceUrl: string | null; observation: string | null; fetchedAt: string | null }>;
   researchCount?: number;
@@ -165,6 +176,9 @@ export interface LeadQualificationItem {
   reasons: string;
   portfolioMatch: string;
   nextAction: string;
+  score: number;
+  segment: string;
+  scoreBreakdown: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -195,6 +209,10 @@ export interface AgentStatus {
     followUpDelayHours: number;
     tickIntervalMs: number;
     batchSize: number;
+    discoveryEnabled: boolean;
+    discoveryCity: string | null;
+    discoveryNiches: string[];
+    discoveryLimit: number;
   };
   counters: {
     leadsProcessed: number;
@@ -213,6 +231,71 @@ export interface AgentStatus {
   nextAction: string | null;
   startedAt: string | null;
   updatedAt: string;
+}
+
+/* ----------------------------------------------------------------------------
+   AI SETUP, TRAINING & THE ONE ON/OFF SWITCH
+   Mirrors server/src/agent/setupService.ts. Keys are reported as NAMES only:
+   no secret value ever reaches the browser.
+   -------------------------------------------------------------------------- */
+
+export type SetupCheckStatus = 'READY' | 'ACTION_REQUIRED' | 'OPTIONAL';
+
+export interface SetupCheck {
+  id: string;
+  label: string;
+  status: SetupCheckStatus;
+  detail: string;
+  /** Environment variable NAMES only (e.g. GEMINI_API_KEY). Never values. */
+  keys: string[];
+  required: boolean;
+}
+
+export interface SetupEnvKey {
+  name: string;
+  set: boolean;
+  required: boolean;
+  purpose: string;
+}
+
+export interface AgentSetupReport {
+  aiReady: boolean;
+  canDraft: boolean;
+  canSend: boolean;
+  providerAuthorized: boolean;
+  providerAuthorizationReason: string;
+  checks: SetupCheck[];
+  envKeys: SetupEnvKey[];
+  knowledge: {
+    portfolioProjects: number;
+    pricingRules: number;
+    approvedRules: number;
+    proposedRules: number;
+    ownerRules: number;
+    coveragePercent: number;
+  };
+  trained: {
+    bootstrapped: boolean;
+    lastTrainedAt: string | null;
+    notes: string;
+  };
+}
+
+export interface AiTrainingReport {
+  portfolioProjects: number;
+  pricingRules: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  approvedRules: number;
+  proposedRules: number;
+  summary: string;
+}
+
+export interface AiActivationResult {
+  steps: string[];
+  status: AgentStatus;
+  report: AgentSetupReport;
 }
 
 export interface AgentEventItem {
@@ -246,6 +329,7 @@ export interface AgentLearningItem {
   category: string;
   observation: string;
   humanAction: string | null;
+  evidence?: string | null;
   outcome: string | null;
   status: 'PROPOSED' | 'APPROVED' | 'REJECTED' | 'ARCHIVED';
   supportCount: number;
@@ -264,6 +348,12 @@ export interface PricingRuleItem {
   maxNegotiation: number;
   escalationAbove: number | null;
   active: boolean;
+  packageName: string | null;
+  includedItems: string | null;
+  deliveryEstimate: string | null;
+  advancePayment: string | null;
+  revisions: string | null;
+  optionalExtras: string | null;
   notes: string | null;
 }
 
@@ -395,6 +485,9 @@ export interface LeadItem {
   portfolioMatch: string;
   suggestedNextAction?: string | null;
   confidence: string;
+  opportunityScore?: number;
+  opportunitySegment?: string;
+  scoreBreakdown?: string | null;
   evidence?: string | null;
   notes?: string | null;
   createdAt: string;
@@ -455,10 +548,18 @@ export interface DashboardStats {
   total: number;
   newLeads: number;
   qualified: number;
+  outreachReady: number;
   interested: number;
   rejected: number;
   followUps: number;
+  humanRequired: number;
   closed: number;
+  conversations: number;
+  learningInsights: number;
+  errors: number;
+  aiActivity: number;
+  recentEvents: Array<{ id: string; type: string; status: string; message: string; createdAt: string }>;
+  recentOutbound: Array<{ id: string; status: string; provider: string; createdAt: string }>;
   niches: Array<{ niche: string; count: number }>;
   intents: Array<{ intent: string; count: number }>;
   sources: Array<{ source: string; count: number }>;
@@ -476,6 +577,40 @@ export interface DashboardStats {
   }>;
   recentDrafts: OutreachDraftItem[];
   recentLearnings: LearningItem[];
+}
+
+export interface VaultKeyStatus {
+  name: string;
+  purpose: string;
+  required: boolean;
+  set: boolean;
+  source: 'ENV' | 'VAULT' | 'MISSING';
+}
+
+/** Lead ke liye 1-click chat links — WhatsApp / Instagram / phone / email. */
+export function chatLinksForLead(lead: {
+  phone?: string | null;
+  instagramUsername?: string | null;
+  email?: string | null;
+  businessName?: string;
+}): Array<{ id: string; label: string; url: string; hint: string }> {
+  const out: Array<{ id: string; label: string; url: string; hint: string }> = [];
+  const digits = (lead.phone ?? '').replace(/\D/g, '');
+  if (digits.length >= 10) {
+    const text = encodeURIComponent(`Namaste ${lead.businessName ?? ''}! D Web Studio se baat karni thi.`.trim());
+    out.push({ id: 'whatsapp', label: 'WhatsApp Chat', url: `https://wa.me/${digits}?text=${text}`, hint: '1 click — seedha chat khulega' });
+  }
+  const handle = (lead.instagramUsername ?? '').replace(/^@/, '').trim();
+  if (handle) {
+    out.push({ id: 'instagram', label: 'Instagram Chat', url: `https://ig.me/m/${handle}`, hint: 'App me DM khulega' });
+  }
+  if (digits.length >= 10) {
+    out.push({ id: 'call', label: 'Call', url: `tel:+${digits}`, hint: 'Direct call' });
+  }
+  if ((lead.email ?? '').includes('@')) {
+    out.push({ id: 'email', label: 'Email', url: `mailto:${lead.email}`, hint: 'Mail likho' });
+  }
+  return out;
 }
 
 export interface ConfigInfo {

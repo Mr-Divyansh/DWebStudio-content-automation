@@ -23,6 +23,7 @@ export interface RecordLearningInput {
   category: LearningCategory;
   observation: string;
   humanAction?: string | null;
+  evidence?: string[];
   outcome?: string | null;
 }
 
@@ -36,12 +37,22 @@ export class AgentLearningStore {
     const key = normalize(input.observation);
     if (!key) return null;
 
-    const existing = await prisma.learningEvent.findFirst({
-      where: { category: input.category, observation: input.observation },
-    });
+    const existing = (await prisma.learningEvent.findMany({
+      where: { category: input.category },
+      select: {
+        id: true,
+        observation: true,
+        outcome: true,
+        humanAction: true,
+        evidence: true,
+        status: true,
+      },
+    })).find((row) => normalize(row.observation) === key);
 
     if (existing) {
-      const contradicts = Boolean(input.outcome) && input.outcome !== existing.outcome;
+      const existingOutcome = (existing.outcome ?? '').trim();
+      const incomingOutcome = (input.outcome ?? '').trim();
+      const contradicts = Boolean(incomingOutcome) && incomingOutcome !== existingOutcome;
       return prisma.learningEvent.update({
         where: { id: existing.id },
         data: {
@@ -49,6 +60,7 @@ export class AgentLearningStore {
           contradictionCount: contradicts ? { increment: 1 } : undefined,
           outcome: input.outcome ?? existing.outcome,
           humanAction: input.humanAction ?? existing.humanAction,
+          evidence: input.evidence ? JSON.stringify(input.evidence.slice(0, 5)) : existing.evidence,
           // A contradicted APPROVED rule must go back to human review.
           status: contradicts && existing.status === 'APPROVED' ? 'PROPOSED' : existing.status,
         },
@@ -63,6 +75,7 @@ export class AgentLearningStore {
         category: input.category,
         observation: input.observation,
         humanAction: input.humanAction ?? null,
+        evidence: input.evidence ? JSON.stringify(input.evidence.slice(0, 5)) : null,
         outcome: input.outcome ?? null,
         status: 'PROPOSED',
         supportCount: 1,
@@ -81,6 +94,7 @@ export class AgentLearningStore {
     return rows.map((r) => ({
       category: r.category,
       observation: r.observation,
+      evidence: r.evidence,
       supportCount: r.supportCount,
       contradictionCount: r.contradictionCount,
     }));
@@ -88,6 +102,26 @@ export class AgentLearningStore {
 
   static async setStatus(id: string, status: LearningStatus) {
     return prisma.learningEvent.update({ where: { id }, data: { status } });
+  }
+
+  static async recordOutcome(input: {
+    leadId: string;
+    outcome: string;
+    observation: string;
+    evidence?: string[];
+    category?: LearningCategory;
+  }) {
+    return prisma.learning.create({
+      data: {
+        learning: input.observation.slice(0, 500),
+        type: input.outcome === 'NOT_INTERESTED' ? 'REJECTION_REASON' : 'SUCCESS_FACTOR',
+        evidence: JSON.stringify((input.evidence || []).slice(0, 5)),
+        confidence: 'MEDIUM',
+        appliesTo: 'All',
+        source: 'AGENT_OUTCOME',
+        relatedLeadId: input.leadId,
+      },
+    });
   }
 
   static async list(limit = 50) {

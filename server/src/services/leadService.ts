@@ -52,6 +52,11 @@ export class LeadService {
     return LeadRepository.getStats();
   }
 
+  /** Operator-visible operational activity without exposing message bodies or secrets. */
+  static async getOperationalStats() {
+    return LeadRepository.getStats();
+  }
+
   static async runAnalysisOnLead(leadId: string) {
     const lead = await LeadRepository.findById(leadId);
     if (!lead) {

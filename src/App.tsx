@@ -44,6 +44,16 @@ export default function App() {
   const loadAllData = useCallback(async () => {
     try {
       setIsRefreshing(true);
+      const session = await api.getAuthSession();
+      if (session.required && !session.authenticated) {
+        if (!session.configured) {
+          throw new Error('Production operator authentication is not configured. Set DWS_ADMIN_PASSWORD and DWS_SESSION_SECRET.');
+        }
+        const password = window.prompt('D Web Studio operator password');
+        if (!password) throw new Error('Operator authentication is required.');
+        await api.login(password);
+      }
+
       const [cfg, dash, pList, leadsRes] = await Promise.all([
         api.getConfig(),
         api.getDashboard(),
@@ -126,6 +136,7 @@ export default function App() {
               onSelectLead={handleSelectLeadById}
               onNavigateToLeads={handleNavigateToLeads}
               onOpenImport={() => setActiveTab('imports')}
+              onOpenAgent={() => setActiveTab('agent')}
             />
           )}
 
@@ -183,7 +194,8 @@ export default function App() {
               <div>
                 <h2 className="text-xl font-bold text-[#F4F1EA]">AI Control Center</h2>
                 <p className="text-xs text-[#8C98A9] mt-0.5">
-                  Start, pause or stop autonomous research, qualification, drafting and learning. Unusual cases
+                  One switch at the top starts or stops your AI. It trains itself on your portfolio and pricing, then
+                  researches, qualifies and drafts — and only ever answers people who message you. Unusual cases
                   escalate to you automatically.
                 </p>
               </div>
