@@ -21,6 +21,11 @@ import {
   AiTrainingReport,
   AiActivationResult,
   VaultKeyStatus,
+  AuthSessionInfo,
+  SessionUser,
+  ConnectedAccountItem,
+  ConnectionsResponse,
+  ConnectedPlatform,
 } from '../types';
 
 export const api = {
@@ -31,22 +36,36 @@ export const api = {
     return res.json();
   },
 
-  async getAuthSession(): Promise<{ authenticated: boolean; required: boolean; configured: boolean }> {
-    const res = await fetch('/api/auth/session', { credentials: 'include' });
+  async getAuthSession(): Promise<AuthSessionInfo> {
+    const res = await fetch('/api/auth/session', { credentials: 'include', cache: 'no-store' });
     if (!res.ok) throw new Error('Failed to read session');
     return res.json();
   },
 
-  async login(password: string): Promise<{ success: boolean; required: boolean }> {
+  /** Normal user login: email + password. */
+  async login(email: string, password: string): Promise<SessionUser> {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ email, password }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || 'Login failed');
-    return body;
+    return body.user;
+  },
+
+  /** Create account. The first account becomes the administrator. */
+  async register(input: { email: string; password: string; name?: string }): Promise<SessionUser> {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'Could not create the account');
+    return body.user;
   },
 
   async logout(): Promise<void> {
@@ -504,6 +523,66 @@ export const api = {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || 'Keys save nahi ho payi');
+    return body;
+  },
+
+  // --------------------------------------------------- connected accounts
+  // Token-free by contract: these endpoints never return a secret.
+
+  async getConnections(): Promise<ConnectionsResponse> {
+    const res = await fetch('/api/connections', { credentials: 'include' });
+    if (!res.ok) throw new Error('Failed to load connected accounts');
+    return res.json();
+  },
+
+  /** Begins a connect flow. `url` is only used for the Discord redirect. */
+  async startConnection(
+    platform: ConnectedPlatform,
+  ): Promise<{ action: string; url?: string; payload?: Record<string, string> }> {
+    const res = await fetch(`/api/connections/${platform}/connect`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `Could not start ${platform} sign-in`);
+    return body;
+  },
+
+  /** Completes a flow. Only the platform's verified payload is ever sent. */
+  async completeConnection(
+    platform: ConnectedPlatform,
+    payload: Record<string, string>,
+  ): Promise<{ connected: boolean; account: ConnectedAccountItem | null }> {
+    const res = await fetch(`/api/connections/${platform}/complete`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `${platform} could not be connected`);
+    return body;
+  },
+
+  async disconnectAccount(platform: ConnectedPlatform): Promise<{ connected: boolean }> {
+    const res = await fetch(`/api/connections/${platform}/disconnect`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'Could not disconnect');
+    return body;
+  },
+
+  /** Asks the platform to re-confirm a stored connection. */
+  async verifyAccount(platform: ConnectedPlatform): Promise<{ ok: boolean; detail: string }> {
+    const res = await fetch(`/api/connections/${platform}/verify`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'Verification failed');
     return body;
   },
 };

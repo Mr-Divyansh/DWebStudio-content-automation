@@ -38,6 +38,11 @@ import { ApiKeysPanel } from './ApiKeysPanel';
 interface AiPowerCardProps {
   /** 'full' is used on the AI page, 'compact' on the dashboard. */
   variant?: 'full' | 'compact';
+  /**
+   * OWNER only. Gates the platform-credential (API key) panel, which is an
+   * administrator concern and must not appear for a normal SaaS member.
+   */
+  isOwner?: boolean;
   onOpenControlCenter?: () => void;
 }
 
@@ -54,7 +59,7 @@ const checkTone: Record<string, { dot: string; text: string }> = {
   OPTIONAL: { dot: 'text-[#5A6675]', text: 'text-[#8C98A9]' },
 };
 
-export const AiPowerCard: React.FC<AiPowerCardProps> = ({ variant = 'full', onOpenControlCenter }) => {
+export const AiPowerCard: React.FC<AiPowerCardProps> = ({ variant = 'full', isOwner = false, onOpenControlCenter }) => {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [setup, setSetup] = useState<AgentSetupReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -397,17 +402,24 @@ export const AiPowerCard: React.FC<AiPowerCardProps> = ({ variant = 'full', onOp
       )}
 
 
-      {/* -------------------------------------------------------- API KEY GUIDE */}
-      {showDetails && setup && (
+      {/* ------------------------------------------- API KEY PANEL (ADMINISTRATOR ONLY)
+          Connecting your own WhatsApp/Discord/Telegram is done in "Connected
+          Accounts" and needs no keys. This panel holds PLATFORM/DEVELOPER
+          credentials (Gemini key, Meta app secret), so it is only rendered for
+          an OWNER. The /api/vault endpoints enforce the same rule server-side;
+          this is the UX half, not the security half. */}
+      {showDetails && setup && isOwner && (
         <div className="rounded-2xl bg-[#0E131A] border border-[#1C232D] p-4 space-y-3">
           <div className="flex items-center gap-2">
             <KeyRound className="w-4 h-4 text-[#2F7EF2]" />
-            <h4 className="text-xs font-bold text-[#F4F1EA] uppercase tracking-wider">API keys — yahin se dalo</h4>
+            <h4 className="text-xs font-bold text-[#F4F1EA] uppercase tracking-wider">
+              Platform credentials — administrator only
+            </h4>
           </div>
           <p className="text-[11px] text-[#8C98A9] leading-relaxed">
-            Paste karo → Save dabao → done. Keys encrypted vault me save hoti hain — server restart ya laptop
-            band hone par bhi <strong className="text-[#F4F1EA]">khoyti nahi</strong>. Values kabhi wapas screen
-            par nahi aati, sirf SAVED / NOT SET dikhta hai. Restart ki jarurat nahi.
+            These are the application's own service credentials (AI provider key, Meta app secret). A normal user never
+            needs them — their accounts are connected from <strong className="text-[#F4F1EA]">Connected Accounts</strong>.
+            Values are stored in an encrypted vault and are never returned to the browser.
           </p>
           <ApiKeysPanel onSaved={load} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

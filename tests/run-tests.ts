@@ -9,6 +9,7 @@ import { runAgentTests } from './agent.test.js';
 import { runMessagingProviderTests } from './messagingProvider.test.js';
 import { runWebhookTests } from './webhook.test.js';
 import { runSetupTests } from './setup.test.js';
+import { runAuthAndConnectionTests } from './authConnections.test.js';
 import { prisma } from '../server/src/database/client.js';
 
 async function main() {
@@ -134,6 +135,20 @@ async function main() {
   console.log('\n--- 9. AI POWER SWITCH, READINESS REPORT & TRAINING ---');
   const setupResults = await runSetupTests();
   for (const r of setupResults) {
+    if (r.passed) {
+      console.log(`  [PASS] ${r.name}`);
+      if (r.message) console.log(`         -> ${r.message}`);
+      totalPassed++;
+    } else {
+      console.log(`  [FAIL] ${r.name}`);
+      if (r.message) console.log(`         -> ERROR: ${r.message}`);
+      totalFailed++;
+    }
+  }
+
+  console.log('\n--- 10. APPLICATION AUTH & PLATFORM CONNECTIONS ---');
+  const authResults = await runAuthAndConnectionTests();
+  for (const r of authResults) {
     if (r.passed) {
       console.log(`  [PASS] ${r.name}`);
       if (r.message) console.log(`         -> ${r.message}`);

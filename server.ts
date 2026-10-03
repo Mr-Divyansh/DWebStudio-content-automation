@@ -3,7 +3,8 @@ import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { authRouter, requireOperatorAuth } from './server/src/api/auth.js';
+import { authRouter, requireAuth, requireOwner } from './server/src/api/auth.js';
+import { connectionRouter, discordCallbackHandler, telegramCallbackHandler } from './server/src/api/routes/connectionRoutes.js';
 import { leadRouter } from './server/src/api/routes/leadRoutes.js';
 import { importRouter } from './server/src/api/routes/importRoutes.js';
 import { learningRouter } from './server/src/api/routes/learningRoutes.js';
@@ -71,7 +72,13 @@ async function startServer() {
       res.status(500).json({ error: err?.message || 'Follow-up run failed' });
     }
   });
-  app.use('/api', requireOperatorAuth);
+  // The Discord OAuth callback is a top-level navigation from discord.com and
+  // cannot present a login prompt first, so it is mounted before the auth gate.
+  // Its security boundary is the single-use, user-bound OAuth `state`.
+  app.get('/api/connections/discord/callback', discordCallbackHandler);
+  app.get('/api/connections/TELEGRAM/complete', telegramCallbackHandler);
+
+  app.use('/api', requireAuth);
 
   // Private API Routes
   app.use('/api/leads', leadRouter);
@@ -80,7 +87,10 @@ async function startServer() {
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/portfolio', portfolioRouter);
   app.use('/api/config', configRouter);
-  app.use('/api/vault', vaultRouter);
+  // Platform connections — the Connected Accounts experience.
+  app.use('/api/connections', connectionRouter);
+  // Operator credential vault: ADMINISTRATOR ONLY.
+  app.use('/api/vault', requireOwner, vaultRouter);
   app.use('/api/agent', agentRouter);
 
   // Seed database with verified knowledge, portfolio, and initial demo leads if empty

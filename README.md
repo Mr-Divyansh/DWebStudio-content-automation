@@ -119,10 +119,43 @@ http://localhost:3000
 
 ## Running Automated Tests
 
-Run the complete test suite covering ZIP extraction, Latin-1 encoding repairs, conversation normalization, No-Invention greeting rules, Zod schema validation, and Prisma database operations:
+Run the complete test suite covering ZIP extraction, Latin-1 encoding repairs, conversation normalization, No-Invention greeting rules, Zod schema validation, Prisma database operations, the Lead AI engine, and the authentication / platform-connection security properties:
 ```bash
 npm test
 ```
+
+Current result: **185 passed, 0 failed**.
+
+---
+
+## Application Login & Connected Accounts
+
+The product entry point is a normal SaaS flow:
+
+```
+Open app -> Login / Create account -> Dashboard -> Connected Accounts
+```
+
+A user never types an API key, access token, cookie, session file, page ID or
+phone ID. Those are a developer/administrator concern, handled on the server.
+
+Three concepts are deliberately kept separate:
+
+| Concern | Question | Location |
+|---|---|---|
+| Application login | Who is using Lead AI? | `server/src/api/auth.ts`, `userService.ts` |
+| Platform connection | Which account is linked? | `server/src/connections/*` |
+| Automation | What should the AI do? | `server/src/agent/*` |
+
+Platform connections use official mechanisms only:
+
+- **WhatsApp** — Meta **Embedded Signup** (Cloud API). No QR automation, no
+  unofficial clients, no stored WhatsApp Web sessions.
+- **Discord** — OAuth2 Authorization Code + PKCE (`identify`, `email` only).
+- **Telegram** — official **Login Widget** (HMAC-verified). No password collected.
+
+Administrator setup, cost, security model and known limitations are documented
+in **[docs/CONNECTED_ACCOUNTS.md](docs/CONNECTED_ACCOUNTS.md)**.
 
 ---
 

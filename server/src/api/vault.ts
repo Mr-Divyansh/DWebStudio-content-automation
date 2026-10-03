@@ -1,7 +1,13 @@
 /**
- * OWNER SECRET VAULT — UI se API keys save karo, .env touch nahi.
+ * OWNER SECRET VAULT — operator-entered platform credentials (admin-only).
  * AES-256-GCM encrypted local file (.vault.json, git-ignored).
- * Env vars hamesha vault se upar (precedence). Values kabhi browser ko nahi.
+ * Env vars always take precedence over the vault. Values never reach the browser.
+ *
+ * SECURITY SCOPE: this vault holds PLATFORM/DEVELOPER credentials (Gemini key,
+ * Meta app secret, etc.). It is an administrative concern and must NOT be the
+ * path a normal user takes to connect their own WhatsApp/Discord/Telegram —
+ * that flow is handled by server/src/connections/* instead, which stores
+ * per-user OAuth tokens encrypted in the database (see api/secretStore.ts).
  */
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 import fs from 'node:fs';

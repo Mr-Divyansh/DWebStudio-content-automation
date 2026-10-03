@@ -25,6 +25,8 @@ interface DashboardOverviewProps {
   onOpenImport: () => void;
   /** Jumps to the AI Control Center from the compact power card. */
   onOpenAgent?: () => void;
+  /** OWNER only: gates the administrator credential panel. */
+  isOwner?: boolean;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -33,6 +35,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onNavigateToLeads,
   onOpenImport,
   onOpenAgent,
+  isOwner = false,
 }) => {
   const kpis = [
     {
@@ -149,7 +152,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   return (
     <div className="space-y-6">
       {/* THE ONE SWITCH — start or stop the whole AI from the dashboard. */}
-      <AiPowerCard variant="compact" onOpenControlCenter={onOpenAgent} />
+      <AiPowerCard variant="compact" isOwner={isOwner} onOpenControlCenter={onOpenAgent} />
 
       {/* Welcome Banner */}
       <div className="p-6 rounded-2xl bg-gradient-to-r from-[#142133] via-[#0E1520] to-[#0C0F13] border border-[#2F7EF2]/30 flex items-center justify-between shadow-xl">

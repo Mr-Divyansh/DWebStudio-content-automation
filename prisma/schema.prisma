@@ -495,3 +495,118 @@ model LearningEvent {
   @@index([category, status])
   @@index([leadId])
 }
+
+// ============================================================================
+// APPLICATION AUTHENTICATION
+// ============================================================================
+// "Who is using D Web Studio Lead AI?" — completely separate from "which
+// WhatsApp/Discord/Telegram account is connected" and "what should the AI do".
+//
+// passwordHash uses scrypt with a per-user salt and is NEVER returned by any
+// API. Session tokens are random 32-byte values; only their SHA-256 hash is
+// stored, so a database leak cannot be replayed as a login.
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String
+  // OWNER = the first/bootstrapping account (sees admin-only surfaces such as
+  // the operator credential vault). MEMBER = a normal SaaS user.
+  role          String    @default("MEMBER")
+  status        String    @default("ACTIVE") // ACTIVE | DISABLED
+  emailVerified Boolean   @default(false)
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessions        AuthSession[]
+  connectedAccounts ConnectedAccount[]
+
+  @@index([role])
+}
+
+// A server-side application session. The cookie carries the raw token; this
+// table stores only sha256(token), so DB access alone cannot impersonate a user.
+model AuthSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+// ============================================================================
+// PLATFORM CONNECTIONS (WhatsApp / Discord / Telegram)
+// ============================================================================
+// "Which account did the user connect?" — strictly separate from authentication
+// and from automation. Connection rows NEVER contain a plaintext token: all
+// secrets are stored as AES-256-GCM ciphertext produced by
+// server/src/connections/secretStore.ts and can only be decrypted on the server.
+//
+// A row is only ever written with status CONNECTED after the platform itself
+// confirmed the credential (Discord /users/@me, Telegram HMAC hash, Meta
+// Graph API). There is deliberately no way to mark an account connected by hand.
+model ConnectedAccount {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // WHATSAPP | DISCORD | TELEGRAM
+  platform String
+
+  // NOT_CONNECTED | PENDING | CONNECTED | ERROR | REVOKED
+  status String @default("PENDING")
+
+  // Platform-side identifiers. Never secrets.
+  externalAccountId String?
+  displayName       String?
+  externalUsername  String?
+
+  // Encrypted (AES-256-GCM). Plaintext tokens are never persisted and never
+  // leave the server: no API response includes any field from this block.
+  accessTokenCiphertext   String?
+  refreshTokenCiphertext  String?
+  tokenExpiresAt          DateTime?
+
+  // JSON string. Granted scopes/permissions — informational only.
+  scopes String?
+
+  // JSON string. Non-secret connection metadata (e.g. Meta WABA id, phone number
+  // id, Telegram chat id) that the automation layer needs but the user must not
+  // have to type.
+  metadata String?
+
+  lastError      String?
+  lastVerifiedAt DateTime?
+  connectedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // One connection per user per platform: reconnecting updates the same row.
+  @@unique([userId, platform])
+  @@index([status])
+}
+
+// Single-use OAuth `state` + PKCE verifier, stored server-side so an attacker
+// cannot forge or replay a callback. Rows are consumed (consumedAt set) on first
+// successful exchange and expire after 10 minutes.
+model OAuthState {
+  id          String    @id @default(cuid())
+  stateHash   String    @unique // sha256(state) — the raw state is never stored
+  codeVerifier String // PKCE verifier; server-only
+  redirectUri String
+  platform    String
+  // Set when the flow started from an authenticated session, so a callback can
+  // never attach an account to a different user than the one who initiated it.
+  userId      String?
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([platform])
+}

@@ -6,6 +6,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
+import { LoginPage } from './components/auth/LoginPage';
+import { ConnectedAccounts } from './components/accounts/ConnectedAccounts';
 import { DashboardOverview } from './components/dashboard/DashboardOverview';
 import { LeadTable } from './components/leads/LeadTable';
 import { LeadDetailModal } from './components/leads/LeadDetailModal';
@@ -20,12 +22,26 @@ import {
   DashboardStats,
   PortfolioProjectItem,
   ConfigInfo,
+  SessionUser,
 } from './types';
 
+/**
+ * Application shell.
+ *
+ * Two top-level states, matching the product's required flow:
+ *   1. Not signed in -> LoginPage (Create account on first visit)
+ *   2. Signed in     -> Dashboard, with Connected Accounts as the first tab
+ *
+ * The old implementation used window.prompt() for the operator password, which
+ * is not a normal SaaS experience. That is gone.
+ */
 export default function App() {
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [connectMessage, setConnectMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
   // Data state
   const [config, setConfig] = useState<ConfigInfo | null>(null);
@@ -41,18 +57,33 @@ export default function App() {
   const [sourceFilter, setSourceFilter] = useState<string>('ALL');
   const [followUpOnly, setFollowUpOnly] = useState<boolean>(false);
 
+  /**
+   * Resolves the signed-in user once on mount, and reads the OAuth return
+   * parameters (?tab=connections&connect=success|error&message=...) so the
+   * Connected Accounts screen can report the real outcome.
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (tab) setActiveTab(tab);
+    const outcome = params.get('connect');
+    const message = params.get('message');
+    if (outcome && message) {
+      setConnectMessage({ text: message, ok: outcome === 'success' });
+      // Clean the URL so a refresh does not re-show a stale result.
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    api
+      .getAuthSession()
+      .then((session) => setSessionUser(session.user))
+      .catch(() => setSessionUser(null))
+      .finally(() => setAuthChecked(true));
+  }, []);
+
   const loadAllData = useCallback(async () => {
     try {
       setIsRefreshing(true);
-      const session = await api.getAuthSession();
-      if (session.required && !session.authenticated) {
-        if (!session.configured) {
-          throw new Error('Production operator authentication is not configured. Set DWS_ADMIN_PASSWORD and DWS_SESSION_SECRET.');
-        }
-        const password = window.prompt('D Web Studio operator password');
-        if (!password) throw new Error('Operator authentication is required.');
-        await api.login(password);
-      }
 
       const [cfg, dash, pList, leadsRes] = await Promise.all([
         api.getConfig(),
@@ -86,8 +117,9 @@ export default function App() {
   }, [statusFilter, intentFilter, nicheFilter, sourceFilter, searchQuery, followUpOnly, selectedLead?.id]);
 
   useEffect(() => {
-    loadAllData();
-  }, [statusFilter, intentFilter, nicheFilter, sourceFilter, searchQuery, followUpOnly]);
+    // Only load dashboard data once signed in — the API requires a session.
+    if (sessionUser) loadAllData();
+  }, [statusFilter, intentFilter, nicheFilter, sourceFilter, searchQuery, followUpOnly, sessionUser]);
 
   const handleSelectLeadById = async (id: string) => {
     try {
@@ -105,6 +137,33 @@ export default function App() {
     setActiveTab('leads');
   };
 
+  /** Signs out and returns to the login screen. */
+  const handleLogout = useCallback(async () => {
+    await api.logout().catch(() => undefined);
+    setSessionUser(null);
+    setActiveTab('dashboard');
+  }, []);
+
+  // Gate 1: still checking -> neutral loading screen (no data, no flash of login).
+  if (!authChecked) {
+    return <div className="min-h-screen bg-[#0C0F13]" />;
+  }
+
+  // Gate 2: not signed in -> the normal login / create-account screen.
+  if (!sessionUser) {
+    return (
+      <LoginPage
+        onAuthenticated={() => {
+          setAuthChecked(true);
+          api
+            .getAuthSession()
+            .then((session) => setSessionUser(session.user))
+            .catch(() => setSessionUser(null));
+        }}
+      />
+    );
+  }
+
   return (
     <div className="flex min-h-screen bg-[#0C0F13] text-[#F4F1EA] selection:bg-[#2F7EF2] selection:text-white">
       {/* Fixed Sidebar */}
@@ -113,6 +172,9 @@ export default function App() {
         setActiveTab={setActiveTab}
         geminiConfigured={config?.geminiConfigured ?? false}
         followUpCount={dashboardStats?.followUps ?? 0}
+        userName={sessionUser.name || sessionUser.email}
+        isOwner={sessionUser.role === 'OWNER'}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Area */}
@@ -129,6 +191,14 @@ export default function App() {
         />
 
         <main className="flex-1 p-8 overflow-y-auto max-w-7xl w-full mx-auto">
+          {/* TAB 0: CONNECTED ACCOUNTS — the first stop after login */}
+          {activeTab === 'connections' && (
+            <ConnectedAccounts
+              initialMessage={connectMessage?.text ?? null}
+              initialSuccess={connectMessage?.ok ?? null}
+            />
+          )}
+
           {/* TAB 1: DASHBOARD */}
           {activeTab === 'dashboard' && dashboardStats && (
             <DashboardOverview
@@ -137,6 +207,7 @@ export default function App() {
               onNavigateToLeads={handleNavigateToLeads}
               onOpenImport={() => setActiveTab('imports')}
               onOpenAgent={() => setActiveTab('agent')}
+              isOwner={sessionUser.role === 'OWNER'}
             />
           )}
 
@@ -199,7 +270,7 @@ export default function App() {
                   escalate to you automatically.
                 </p>
               </div>
-              <AgentControlPanel />
+              <AgentControlPanel isOwner={sessionUser.role === 'OWNER'} />
 
               <div className="pt-6 mt-6 border-t border-[#1C232D]">
                 <h3 className="text-sm font-bold text-[#F4F1EA] mb-3">Messaging &amp; Conversations</h3>

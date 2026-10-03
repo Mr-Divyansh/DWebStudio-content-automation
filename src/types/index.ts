@@ -579,6 +579,60 @@ export interface DashboardStats {
   recentLearnings: LearningItem[];
 }
 
+/* ------------------------------------------------------------------ sessions */
+
+export interface SessionUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string;
+  createdAt: string;
+}
+
+export interface AuthSessionInfo {
+  authenticated: boolean;
+  user: SessionUser | null;
+  required: boolean;
+  configured: boolean;
+  /** Whether the "Create account" tab should be offered. */
+  registrationOpen: boolean;
+  /** Whether at least one account already exists. */
+  hasUsers: boolean;
+}
+
+export type ConnectedPlatform = 'WHATSAPP' | 'DISCORD' | 'TELEGRAM';
+
+export type ConnectionStatus = 'NOT_CONNECTED' | 'PENDING' | 'CONNECTED' | 'ERROR' | 'REVOKED';
+
+/**
+ * Token-free view of a connected account. The API physically cannot return a
+ * token, so this type has no field for one.
+ */
+export interface ConnectedAccountItem {
+  platform: ConnectedPlatform;
+  label: string;
+  status: ConnectionStatus;
+  connected: boolean;
+  displayName: string | null;
+  username: string | null;
+  scopes: string[];
+  connectedAt: string | null;
+  lastVerifiedAt: string | null;
+  lastError: string | null;
+  connectHint: string | null;
+  /** False when the one-time developer setup is not finished on the server. */
+  available: boolean;
+  /** Plain-language reason the Connect button is disabled. */
+  unavailableReason: string | null;
+}
+
+export interface ConnectionsResponse {
+  accounts: ConnectedAccountItem[];
+  /** True when the server can securely store tokens. */
+  storageReady: boolean;
+  notice: string | null;
+}
+
 export interface VaultKeyStatus {
   name: string;
   purpose: string;

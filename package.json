@@ -8,7 +8,7 @@
     "build": "vite build",
     "start": "tsx server.ts",
     "preview": "vite preview",
-    "test": "prisma generate --schema prisma/schema.sqlite.prisma && tsx tests/run-tests.ts",
+    "test": "prisma generate --schema prisma/schema.sqlite.prisma && node scripts/push-test-db.mjs && tsx tests/run-tests.ts",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsc --noEmit",
     "vercel-build": "prisma generate && vite build",

@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import { authRouter, requireOperatorAuth } from './api/auth.js';
+import { authRouter, requireAuth, requireOwner } from './api/auth.js';
+import { connectionRouter, discordCallbackHandler, telegramCallbackHandler } from './api/routes/connectionRoutes.js';
 import { leadRouter } from './api/routes/leadRoutes.js';
 import { importRouter } from './api/routes/importRoutes.js';
 import { learningRouter } from './api/routes/learningRoutes.js';
@@ -65,7 +66,13 @@ export function createExpressApp() {
       res.status(500).json({ error: err?.message || 'Follow-up run failed' });
     }
   });
-  app.use('/api', requireOperatorAuth);
+  // The Discord OAuth callback must be reachable BEFORE the auth gate because
+  // it is a top-level navigation from discord.com that cannot present a JSON
+  // login first. Its security boundary is the single-use, user-bound `state`.
+  app.get('/api/connections/discord/callback', discordCallbackHandler);
+  app.get('/api/connections/TELEGRAM/complete', telegramCallbackHandler);
+
+  app.use('/api', requireAuth);
 
   // Private API Routes
   app.use('/api/leads', leadRouter);
@@ -74,7 +81,11 @@ export function createExpressApp() {
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/portfolio', portfolioRouter);
   app.use('/api/config', configRouter);
-  app.use('/api/vault', vaultRouter);
+  // Platform connections — the Connected Accounts experience.
+  app.use('/api/connections', connectionRouter);
+  // Operator credential vault: ADMINISTRATOR ONLY. A normal user never needs it
+  // because connecting a platform is done via /api/connections instead.
+  app.use('/api/vault', requireOwner, vaultRouter);
   app.use('/api/agent', agentRouter);
 
   return app;

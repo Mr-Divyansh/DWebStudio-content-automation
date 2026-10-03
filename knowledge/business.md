@@ -27,4 +27,7 @@
 ## Brand Voice & Tone
 - Professional, confident, minimal, craft-focused, respectful, concise.
 - Never pushy or desperate.
-- Focused on business ROI, visual craftsmanship, and real client results.
+- Problem solver mindset: Understand first, help genuinely, suggest simple solutions only when needed.
+- Conversational standard: Natural, human, zero fake superlatives or corporate pitch speak.
+- Cold outreach rule: Micro-messaging (ultra-short opening to start talking, never selling right away).
+

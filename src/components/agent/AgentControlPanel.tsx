@@ -46,7 +46,7 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
-export const AgentControlPanel: React.FC = () => {
+export const AgentControlPanel: React.FC<{ isOwner?: boolean }> = ({ isOwner = false }) => {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [events, setEvents] = useState<AgentEventItem[]>([]);
   const [messages, setMessages] = useState<OutboundMessageItem[]>([]);
@@ -150,7 +150,7 @@ export const AgentControlPanel: React.FC = () => {
   return (
     <div className="space-y-5">
       {/* THE ONE SWITCH — on/off, readiness checklist, training, API keys. */}
-      <AiPowerCard variant="full" />
+      <AiPowerCard variant="full" isOwner={isOwner} />
 
       {error && (
         <div className="px-4 py-2.5 rounded-lg bg-[#2E1A1A] border border-[#5A2A2A] text-xs text-[#FFB4B4]">{error}</div>

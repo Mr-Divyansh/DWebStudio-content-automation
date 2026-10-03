@@ -8,6 +8,8 @@ import {
   ShieldCheck,
   Zap,
   Bot,
+  Plug,
+  LogOut,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -15,6 +17,10 @@ interface SidebarProps {
   setActiveTab: (tab: string) => void;
   geminiConfigured: boolean;
   followUpCount?: number;
+  /** Signed-in user, shown in the footer. */
+  userName?: string;
+  isOwner?: boolean;
+  onLogout?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -22,8 +28,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setActiveTab,
   geminiConfigured,
   followUpCount = 0,
+  userName,
+  isOwner = false,
+  onLogout,
 }) => {
   const navItems = [
+    // Connected Accounts sits directly under the brand: it is the first thing a
+    // new user should do after logging in.
+    { id: 'connections', label: 'Connected Accounts', icon: Plug },
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     {
       id: 'leads',
@@ -121,6 +133,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <ShieldCheck className="w-4 h-4 text-[#2F7EF2] shrink-0" />
           <span>Human take-over always overrides the AI.</span>
         </div>
+
+        {/* Signed-in user + sign out */}
+        {userName && (
+          <div className="flex items-center gap-2 px-2 pt-3 mt-3 border-t border-[#1C232D]">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-semibold text-[#F4F1EA] truncate">{userName}</p>
+              <p className="text-[10px] text-[#5A6675]">{isOwner ? 'Administrator' : 'Member'}</p>
+            </div>
+            <button
+              onClick={onLogout}
+              title="Sign out"
+              aria-label="Sign out"
+              className="p-2 rounded-lg bg-[#141A22] hover:bg-[#1E2734] border border-[#1E2734] text-[#8C98A9] hover:text-[#F4F1EA] cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );
