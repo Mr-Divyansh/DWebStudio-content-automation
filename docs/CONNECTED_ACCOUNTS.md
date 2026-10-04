@@ -230,9 +230,85 @@ https://<your-host>/api/webhooks/whatsapp
 
 Fields: `messages`. Set `META_WEBHOOK_VERIFY_TOKEN` to your own random value.
 
-**If Meta has not approved your app yet**, the Connect button is disabled and
-says the setup is handled by the administrator. This is honest: the system will
-not pretend to connect, and it will not fall back to QR automation.
+**If Meta has not approved your app yet**, the Connect button is still clickable
+but opens the **setup screen** instead of starting a flow. It names the exact
+missing environment variables, lists the Meta approval steps, and says
+"Provider approval/setup required". This is honest: the system will not pretend
+to connect, and it will not fall back to QR automation.
+
+---
+
+## 6. When a provider is not configured
+
+**No Connect button is ever disabled.** A missing environment variable used to
+grey out the button, which told the user nothing and left them stuck. Each card
+now renders one of four honest states:
+
+| State | Button | What it does |
+|---|---|---|
+| `READY` | **Connect** | Starts the real official authorization flow |
+| `CONNECTED` | **Manage / Disconnect** | Re-verifies with the provider, or revokes |
+| `SETUP_REQUIRED` | **Setup** | Opens the setup checklist for that provider |
+| `AUTHORIZATION_FAILED` | **Retry** | Restarts the flow after a provider error |
+| `UNAVAILABLE` | **View details** | Server-side storage problem; retrying will not help |
+
+`POST /api/connections/:platform/connect` returns **HTTP 200** with
+`{ "action": "setup_required", "setup": {...} }` for an unconfigured provider,
+rather than a 503. No OAuth state row is created for a flow that cannot start.
+
+### What the setup screen shows
+
+- **Status** — "Not configured on this server"
+- **Missing** — the environment variable **names** that are absent
+- **Steps** — numbered, provider-specific administrator instructions
+- **Redirect URI** — the exact string to register, with a copy button
+- **Docs link** — the provider's official documentation
+
+Variable **values are never displayed or requested**. The API response type has
+no field that could carry a value, so a secret cannot reach the browser even if
+the component were rewritten badly. `POST /api/connections/GMAIL/connect` never
+returns a token.
+
+### Where these states appear
+
+- **Connected Accounts** — the five provider cards
+- **Channel page** — one page per provider
+- **Command Center** — "Channel health" (status · account · last verified ·
+  action) and the **Attention Required** panel
+
+---
+
+## 7. Reading an authorization error
+
+Provider OAuth errors are mapped to their real cause rather than collapsed into
+one generic message. Google's consent screen returns errors **without** an
+authorization code, so the old handler reported "did not return an
+authorization code" for misconfigurations that had nothing to do with codes.
+
+| Provider error | Shown to the user |
+|---|---|
+| `redirect_uri_mismatch` | The exact redirect URI to register, including the port |
+| `org_internal` | Set the consent screen to EXTERNAL and add a test user |
+| `unauthorized_client` / `invalid_client` | Check the client type and registered URIs |
+| `invalid_scope` | The API may be disabled, or Advanced Access is needed |
+| `access_denied` | Authorization was cancelled |
+| *(no error, no code)* | The callback URL was opened directly — press Connect again |
+
+The provider's `error_description` is **never** echoed into the redirect,
+because it can contain a client ID and is attacker-influenceable.
+
+### Redirect URI resolution
+
+Every redirect URI comes from one helper, `appOrigin()`:
+
+1. `APP_URL` if set
+2. otherwise `http://localhost:${PORT}`
+3. otherwise `http://localhost:3300`
+
+This guarantees the URI is always **absolute**. Deriving it from `APP_URL` alone
+silently produced the relative string `/api/connections/gmail/callback` when the
+variable was unset, which no provider can match — a confusing failure with no
+obvious cause.
 
 > Embedded Signup **v2** is deprecated by Meta on **15 October 2026**. This
 > integration targets **v4** (`sessionInfoVersion: '3'`).
