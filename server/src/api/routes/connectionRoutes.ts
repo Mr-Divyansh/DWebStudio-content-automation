@@ -267,3 +267,66 @@ export const telegramCallbackHandler: (req: Request, res: Response) => Promise<v
  * so it also works when the whole router is mounted behind requireAuth).
  */
 connectionRouter.get('/discord/callback', discordCallbackHandler);
+/**
+ * Shared shape of an OAuth redirect landing: Meta and Google both return here as
+ * a top-level GET navigation, so the handler cannot rely on a JSON session call.
+ */
+function oauthRedirectHandler(platform: Platform, successCopy: string) {
+  return async (req: Request, res: Response): Promise<void> => {
+    const appUrl = (process.env.APP_URL ?? '').trim().replace(/\/+$/, '');
+    const finish = (ok: boolean, message: string) =>
+      res.redirect(`${appUrl}/?tab=connections&connect=${ok ? 'success' : 'error'}&message=${encodeURIComponent(message)}`);
+
+    // The user may decline consent; surface that plainly instead of a generic error.
+    if (typeof req.query.error === 'string') {
+      const denied = req.query.error === 'access_denied';
+      finish(false, denied ? `Authorization was cancelled. ${PLATFORM_LABELS[platform]} was not connected.` : 'The provider reported an authorization error. Please try again.');
+      return;
+    }
+
+    const code = typeof req.query.code === 'string' ? req.query.code : null;
+    const state = typeof req.query.state === 'string' ? req.query.state : null;
+    if (!code || !state) {
+      finish(false, `${PLATFORM_LABELS[platform]} did not return an authorization code.`);
+      return;
+    }
+
+    // Single-use, hashed, user-bound state is the security boundary here.
+    const consumed = await ConnectionService.consumeState(platform, state, null);
+    if (!consumed?.userId) {
+      finish(false, `This ${PLATFORM_LABELS[platform]} authorization expired or was already used. Please try again.`);
+      return;
+    }
+
+    try {
+      const verified = await getAdapter(platform).complete({ code, state, codeVerifier: consumed.codeVerifier });
+      await ConnectionService.saveVerified(consumed.userId, platform, verified);
+      finish(true, successCopy);
+    } catch (err) {
+      await ConnectionService.markError(
+        consumed.userId,
+        platform,
+        err instanceof Error ? err.message : 'Connection failed.',
+      ).catch(() => undefined);
+      finish(false, err instanceof Error ? err.message : `${PLATFORM_LABELS[platform]} could not be connected.`);
+    }
+  };
+}
+
+/**
+ * GET /api/connections/instagram/callback
+ * Used by the classic Facebook OAuth dialog. When the administrator has
+ * configured an Embedded Signup configuration id instead, the frontend posts the
+ * code to POST /api/connections/INSTAGRAM/complete and this route is unused.
+ */
+export const instagramCallbackHandler = oauthRedirectHandler('INSTAGRAM', 'Instagram connected successfully.');
+
+/**
+ * GET /api/connections/gmail/callback
+ * Google's standard OAuth 2.0 redirect landing.
+ */
+export const gmailCallbackHandler = oauthRedirectHandler('GMAIL', 'Gmail connected successfully.');
+
+connectionRouter.get('/discord/callback', discordCallbackHandler);
+connectionRouter.get('/instagram/callback', instagramCallbackHandler);
+connectionRouter.get('/gmail/callback', gmailCallbackHandler);

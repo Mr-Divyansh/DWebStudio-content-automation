@@ -1,4 +1,4 @@
-/**
+﻿/**
  * AUTHENTICATION & PLATFORM CONNECTION TESTS
  * ============================================================================
  * Security properties of the new layers:
@@ -25,6 +25,13 @@ import {
 import { UserService, normalizeEmail, MIN_PASSWORD_LENGTH } from '../server/src/api/userService.js';
 import { ConnectionService } from '../server/src/connections/connectionService.js';
 import { verifyTelegramAuth } from '../server/src/connections/telegram.js';
+import { allAdapters, getAdapter } from '../server/src/connections/adapters.js';
+import { PLATFORMS, PLATFORM_LABELS, PLATFORM_ORDER, isPlatform } from '../server/src/connections/types.js';
+import { isInstagramConfigured, isInstagramEmbeddedSignupConfigured, INSTAGRAM_SCOPES } from '../server/src/connections/instagram.js';
+import { isGmailConfigured, GMAIL_SCOPES } from '../server/src/connections/gmail.js';
+import { isDiscordConfigured } from '../server/src/connections/discord.js';
+import { isTelegramConfigured } from '../server/src/connections/telegram.js';
+import { isWhatsAppConfigured } from '../server/src/connections/whatsapp.js';
 import { createHmac, createHash } from 'node:crypto';
 
 interface TestResult {
@@ -335,9 +342,9 @@ export async function runAuthAndConnectionTests(): Promise<TestResult[]> {
 /* ----------------------------------------------------------- connections */
 
     results.push(
-      await check('Connections: a fresh user sees all three platforms as not connected', async () => {
+      await check('Connections: a fresh user sees every platform as not connected', async () => {
         const list = await ConnectionService.listForUser(userB.id);
-        assert(list.length === 3, `expected 3 platform cards, got ${list.length}`);
+        assert(list.length === PLATFORMS.length, `expected ${PLATFORMS.length} platform cards, got ${list.length}`);
         for (const item of list) {
           assert(item.connected === false, `${item.platform} reported as connected for a fresh user`);
           assert(item.status === 'NOT_CONNECTED', `${item.platform} has status ${item.status}`);
@@ -425,7 +432,197 @@ export async function runAuthAndConnectionTests(): Promise<TestResult[]> {
         assert((await ConnectionService.readAccessToken(userA.id, 'DISCORD')) === null, 'the token survived disconnect');
       }),
     );
-  } finally {
+/* ------------------------------------------ provider coverage: no config leaks */
+
+    results.push(
+      await check('Providers: all five platforms are registered and labelled', () => {
+        const expected = ['INSTAGRAM', 'WHATSAPP', 'GMAIL', 'DISCORD', 'TELEGRAM'];
+        assert(
+          JSON.stringify(PLATFORMS) === JSON.stringify(expected),
+          `unexpected platform list: ${PLATFORMS.join(', ')}`,
+        );
+        for (const platform of PLATFORMS) {
+          assert(Boolean(PLATFORM_LABELS[platform]), `${platform} has no label`);
+          assert(typeof PLATFORM_ORDER[platform] === 'number', `${platform} has no render order`);
+          assert(getAdapter(platform).platform === platform, `${platform} adapter is mis-registered`);
+        }
+        assert(allAdapters().length === PLATFORMS.length, 'adapter count does not match platform count');
+        return PLATFORMS.map((p) => PLATFORM_LABELS[p]).join(', ');
+      }),
+    );
+
+    results.push(
+      await check('Providers: unknown platform names are rejected by the allow-list', () => {
+        for (const bad of ['SLACK', 'slack', 'INSTAGRAM ', '', '../etc', 'WHATSAPP; DROP TABLE']) {
+          assert(!isPlatform(bad), `platform "${bad}" was accepted`);
+        }
+        assert(isPlatform('INSTAGRAM'), 'INSTAGRAM was rejected');
+        assert(isPlatform('GMAIL'), 'GMAIL was rejected');
+      }),
+    );
+
+    results.push(
+      await check('Providers: unconfigured providers report unavailable, never fake success', () => {
+        // Hermetic: a developer shell may already export real provider values
+        // (e.g. from a running dev server), which would make this test lie.
+        const PROVIDER_ENV_KEYS = [
+          'META_APP_ID',
+          'META_APP_SECRET',
+          'META_INSTAGRAM_CONFIG_ID',
+          'META_EMBEDDED_SIGNUP_CONFIG_ID',
+          'GOOGLE_CLIENT_ID',
+          'GOOGLE_CLIENT_SECRET',
+          'DISCORD_CLIENT_ID',
+          'DISCORD_CLIENT_SECRET',
+          'TELEGRAM_BOT_ID',
+          'TELEGRAM_BOT_USERNAME',
+          'TELEGRAM_BOT_TOKEN',
+        ];
+        const saved: Record<string, string | undefined> = {};
+        for (const key of PROVIDER_ENV_KEYS) {
+          saved[key] = process.env[key];
+          delete process.env[key];
+        }
+        try {
+          for (const adapter of allAdapters()) {
+            assert(adapter.isConfigured() === false, `${adapter.platform} claimed to be configured with no credentials`);
+            const reason = adapter.unavailableReason();
+            assert(typeof reason === 'string' && reason.length > 0, `${adapter.platform} has no unavailableReason`);
+            assert(
+              !/=|api[_ ]?key|secret/i.test(reason),
+              `${adapter.platform} reason leaks technical detail: ${reason}`,
+            );
+          }
+        } finally {
+          for (const key of PROVIDER_ENV_KEYS) {
+            if (saved[key] === undefined) delete process.env[key];
+            else process.env[key] = saved[key];
+          }
+        }
+        return '5/5 report unavailable with a human-readable reason';
+      }),
+    );
+
+    results.push(
+      await check('Providers: Instagram asks only for official Instagram Platform scopes', () => {
+        const allowed = new Set(['instagram_basic', 'pages_show_list', 'instagram_manage_messages', 'business_management']);
+        for (const scope of INSTAGRAM_SCOPES) {
+          assert(allowed.has(scope), `unexpected Instagram scope requested: ${scope}`);
+        }
+        return INSTAGRAM_SCOPES.join(', ');
+      }),
+    );
+
+    results.push(
+      await check('Providers: Gmail requests read-only scopes and never mail write access', () => {
+        assert(GMAIL_SCOPES.includes('https://www.googleapis.com/auth/gmail.readonly'), 'gmail.readonly missing');
+        for (const forbidden of [
+          'https://www.googleapis.com/auth/gmail.send',
+          'https://www.googleapis.com/auth/gmail.modify',
+          'https://mail.google.com/',
+          'https://www.googleapis.com/auth/drive',
+        ]) {
+          assert(!GMAIL_SCOPES.includes(forbidden), `Gmail must not request ${forbidden} (least privilege)`);
+        }
+        return GMAIL_SCOPES.map((s) => s.split('/').pop()).join(', ');
+      }),
+    );
+
+    results.push(
+      await check('Providers: Instagram Embedded Signup needs app id, secret AND config id', () => {
+        const base = { META_APP_ID: 'a', META_APP_SECRET: 'b' } as NodeJS.ProcessEnv;
+        assert(isInstagramConfigured(base), 'app id + secret should be enough for the dialog fallback');
+        assert(!isInstagramEmbeddedSignupConfigured(base), 'Embedded Signup must require a config id');
+        assert(
+          isInstagramEmbeddedSignupConfigured({ ...base, META_INSTAGRAM_CONFIG_ID: 'cfg' } as NodeJS.ProcessEnv),
+          'config id should enable Embedded Signup',
+        );
+        assert(
+          !isInstagramEmbeddedSignupConfigured({ META_APP_ID: 'a', META_INSTAGRAM_CONFIG_ID: 'cfg' } as NodeJS.ProcessEnv),
+          'Embedded Signup must not work without the app secret',
+        );
+      }),
+    );
+results.push(
+      await check('Connections: Gmail stores the verified address and encrypts both tokens', async () => {
+        await ConnectionService.saveVerified(userA.id, 'GMAIL', {
+          externalAccountId: 'google-sub-123',
+          displayName: 'Demo Owner',
+          username: 'owner@example.com',
+          scopes: GMAIL_SCOPES,
+          accessToken: 'ya29.fake-google-access-token',
+          refreshToken: '1//fake-google-refresh-token',
+          tokenExpiresAt: new Date(Date.now() + 3_600_000),
+          metadata: { email: 'owner@example.com', emailVerified: 'true', googleSubject: 'google-sub-123' },
+        });
+
+        const summary = await ConnectionService.findForUser(userA.id, 'GMAIL');
+        assert(summary?.connected === true, 'Gmail was not marked connected');
+        assert(summary?.accountEmail === 'owner@example.com', 'the verified Gmail address is not exposed to the UI');
+
+        const row = await prisma.connectedAccount.findUnique({
+          where: { userId_platform: { userId: userA.id, platform: 'GMAIL' } },
+        });
+        assert(!String(row?.accessTokenCiphertext).includes('ya29.'), 'the Google access token is stored in plaintext');
+        assert(!String(row?.refreshTokenCiphertext).includes('1//'), 'the Google refresh token is stored in plaintext');
+        assert(
+          (await ConnectionService.readRefreshToken(userA.id, 'GMAIL')) === '1//fake-google-refresh-token',
+          'the server cannot read back its own refresh token',
+        );
+      }),
+    );
+
+    results.push(
+      await check('Connections: Instagram stores identifiers but never the page token in the clear', async () => {
+        await ConnectionService.saveVerified(userA.id, 'INSTAGRAM', {
+          externalAccountId: '17841400000000001',
+          displayName: 'D Web Studio',
+          username: '@dwebstudio',
+          scopes: INSTAGRAM_SCOPES,
+          accessToken: 'EAAFakeInstagramPageToken',
+          refreshToken: null,
+          tokenExpiresAt: null,
+          metadata: { igsid: '17841400000000001', igUsername: 'dwebstudio', pageId: '134895793791914' },
+        });
+
+        const summary = await ConnectionService.findForUser(userA.id, 'INSTAGRAM');
+        assert(summary?.connected === true, 'Instagram was not marked connected');
+        assert(summary?.username === '@dwebstudio', 'the Instagram handle is not shown');
+
+        const row = await prisma.connectedAccount.findUnique({
+          where: { userId_platform: { userId: userA.id, platform: 'INSTAGRAM' } },
+        });
+        assert(!String(row?.accessTokenCiphertext).includes('EAAFake'), 'the Instagram page token is stored in plaintext');
+        const meta = await ConnectionService.readMetadata(userA.id, 'INSTAGRAM');
+        assert(meta.pageId === '134895793791914', 'the non-secret page id is not available to the automation layer');
+      }),
+    );
+
+    results.push(
+      await check('Connections: disconnect clears Gmail and Instagram tokens too', async () => {
+        await ConnectionService.disconnect(userA.id, 'GMAIL');
+        assert((await prisma.connectedAccount.count({ where: { userId: userA.id, platform: 'GMAIL' } })) === 0,
+          'the Gmail row survived disconnect');
+        assert((await ConnectionService.readAccessToken(userA.id, 'GMAIL')) === null, 'the Gmail token survived disconnect');
+        assert((await ConnectionService.readRefreshToken(userA.id, 'GMAIL')) === null, 'the Gmail refresh token survived');
+
+        await ConnectionService.disconnect(userA.id, 'INSTAGRAM');
+        assert((await prisma.connectedAccount.count({ where: { userId: userA.id, platform: 'INSTAGRAM' } })) === 0,
+          'the Instagram row survived disconnect');
+      }),
+    );
+
+    results.push(
+      await check('Connections: a forged callback cannot attach a provider to another user', async () => {
+        // The state row decides the owner, so a client-supplied user id is never
+        // trusted on the callback path.
+        const { state } = await ConnectionService.createState('GMAIL', 'https://example.test/cb', userA.id);
+        const asB = await ConnectionService.consumeState('GMAIL', state, userB.id);
+        assert(asB === null, 'user B completed a flow started by user A');
+        await ConnectionService.consumeState('GMAIL', state, userA.id).catch(() => null);
+      }),
+    );
+} finally {
     /* -------------------------------------------------------------- cleanup */
     if (userA && userB) {
       await prisma.connectedAccount.deleteMany({ where: { userId: { in: [userA.id, userB.id] } } });

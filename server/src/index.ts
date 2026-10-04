@@ -1,7 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import { authRouter, requireAuth, requireOwner } from './api/auth.js';
-import { connectionRouter, discordCallbackHandler, telegramCallbackHandler } from './api/routes/connectionRoutes.js';
+import { connectionRouter, discordCallbackHandler, telegramCallbackHandler, instagramCallbackHandler, gmailCallbackHandler } from './api/routes/connectionRoutes.js';
 import { leadRouter } from './api/routes/leadRoutes.js';
 import { importRouter } from './api/routes/importRoutes.js';
 import { learningRouter } from './api/routes/learningRoutes.js';
@@ -71,6 +71,8 @@ export function createExpressApp() {
   // login first. Its security boundary is the single-use, user-bound `state`.
   app.get('/api/connections/discord/callback', discordCallbackHandler);
   app.get('/api/connections/TELEGRAM/complete', telegramCallbackHandler);
+  app.get('/api/connections/instagram/callback', instagramCallbackHandler);
+  app.get('/api/connections/gmail/callback', gmailCallbackHandler);
 
   app.use('/api', requireAuth);
 

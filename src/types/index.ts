@@ -600,7 +600,7 @@ export interface AuthSessionInfo {
   hasUsers: boolean;
 }
 
-export type ConnectedPlatform = 'WHATSAPP' | 'DISCORD' | 'TELEGRAM';
+export type ConnectedPlatform = 'INSTAGRAM' | 'WHATSAPP' | 'GMAIL' | 'DISCORD' | 'TELEGRAM';
 
 export type ConnectionStatus = 'NOT_CONNECTED' | 'PENDING' | 'CONNECTED' | 'ERROR' | 'REVOKED';
 
@@ -615,6 +615,8 @@ export interface ConnectedAccountItem {
   connected: boolean;
   displayName: string | null;
   username: string | null;
+  /** Verified account email when the provider exposes one (Gmail, Discord). */
+  accountEmail: string | null;
   scopes: string[];
   connectedAt: string | null;
   lastVerifiedAt: string | null;

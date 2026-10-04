@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { authRouter, requireAuth, requireOwner } from './server/src/api/auth.js';
-import { connectionRouter, discordCallbackHandler, telegramCallbackHandler } from './server/src/api/routes/connectionRoutes.js';
+import { connectionRouter, discordCallbackHandler, telegramCallbackHandler, instagramCallbackHandler, gmailCallbackHandler } from './server/src/api/routes/connectionRoutes.js';
 import { leadRouter } from './server/src/api/routes/leadRoutes.js';
 import { importRouter } from './server/src/api/routes/importRoutes.js';
 import { learningRouter } from './server/src/api/routes/learningRoutes.js';
@@ -77,6 +77,8 @@ async function startServer() {
   // Its security boundary is the single-use, user-bound OAuth `state`.
   app.get('/api/connections/discord/callback', discordCallbackHandler);
   app.get('/api/connections/TELEGRAM/complete', telegramCallbackHandler);
+  app.get('/api/connections/instagram/callback', instagramCallbackHandler);
+  app.get('/api/connections/gmail/callback', gmailCallbackHandler);
 
   app.use('/api', requireAuth);
 

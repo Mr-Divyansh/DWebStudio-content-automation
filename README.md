@@ -124,7 +124,7 @@ Run the complete test suite covering ZIP extraction, Latin-1 encoding repairs, c
 npm test
 ```
 
-Current result: **185 passed, 0 failed**.
+Current result: **195 passed, 0 failed**.
 
 ---
 
@@ -149,10 +149,13 @@ Three concepts are deliberately kept separate:
 
 Platform connections use official mechanisms only:
 
-- **WhatsApp** — Meta **Embedded Signup** (Cloud API). No QR automation, no
+- **Instagram** — Facebook Login for Business (Instagram Platform). Requires a
+  Business/Creator account linked to a Facebook Page.
+- **WhatsApp** — Meta Embedded Signup (Cloud API). No QR automation, no
   unofficial clients, no stored WhatsApp Web sessions.
+- **Gmail** — Google OAuth 2.0 + PKCE, `gmail.readonly` only.
 - **Discord** — OAuth2 Authorization Code + PKCE (`identify`, `email` only).
-- **Telegram** — official **Login Widget** (HMAC-verified). No password collected.
+- **Telegram** — official Login Widget (HMAC-verified). No password collected.
 
 Administrator setup, cost, security model and known limitations are documented
 in **[docs/CONNECTED_ACCOUNTS.md](docs/CONNECTED_ACCOUNTS.md)**.

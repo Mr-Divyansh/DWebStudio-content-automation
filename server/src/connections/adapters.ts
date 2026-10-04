@@ -6,13 +6,17 @@
  */
 
 import discord from './discord.js';
+import gmail from './gmail.js';
+import instagram from './instagram.js';
 import telegram from './telegram.js';
 import whatsapp from './whatsapp.js';
 import type { PlatformAdapter } from './adapterTypes.js';
 import type { Platform } from './types.js';
 
 const REGISTRY: Record<Platform, PlatformAdapter> = {
+  INSTAGRAM: instagram,
   WHATSAPP: whatsapp,
+  GMAIL: gmail,
   DISCORD: discord,
   TELEGRAM: telegram,
 };

@@ -14,12 +14,12 @@
  * leads. That is the architecture rule the product direction demands.
  *
  * HARD RULE: a connection is only ever marked CONNECTED after the PLATFORM has
- * verified the credential (Discord /users/@me, Telegram HMAC, Meta Graph API).
- * There is intentionally no code path that sets CONNECTED from user input, so
- * the UI can never show a fake "connected" state.
+ * verified the credential (Discord /users/@me, Telegram HMAC, Meta Graph API,
+ * Google userinfo + Gmail profile). There is intentionally no code path that sets
+ * CONNECTED from user input, so the UI can never show a fake "connected" state.
  */
 
-export const PLATFORMS = ['WHATSAPP', 'DISCORD', 'TELEGRAM'] as const;
+export const PLATFORMS = ['INSTAGRAM', 'WHATSAPP', 'GMAIL', 'DISCORD', 'TELEGRAM'] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
 export type ConnectionStatus = 'NOT_CONNECTED' | 'PENDING' | 'CONNECTED' | 'ERROR' | 'REVOKED';
@@ -32,6 +32,12 @@ export interface ConnectionSummary {
   connected: boolean;
   displayName: string | null;
   username: string | null;
+  /**
+   * Verified account email when the provider exposes one (Gmail, Discord).
+   * Derived from the non-secret `metadata` column, so this needs no extra
+   * database column and can never carry a credential.
+   */
+  accountEmail: string | null;
   scopes: string[];
   connectedAt: string | null;
   lastVerifiedAt: string | null;
@@ -48,9 +54,23 @@ export function isPlatform(value: unknown): value is Platform {
 }
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
+  INSTAGRAM: 'Instagram',
   WHATSAPP: 'WhatsApp',
+  GMAIL: 'Gmail',
   DISCORD: 'Discord',
   TELEGRAM: 'Telegram',
+};
+
+/**
+ * Order the Connected Accounts screen renders. Instagram first (it is the
+ * primary lead channel), then messaging, then the others.
+ */
+export const PLATFORM_ORDER: Record<Platform, number> = {
+  INSTAGRAM: 0,
+  WHATSAPP: 1,
+  GMAIL: 2,
+  DISCORD: 3,
+  TELEGRAM: 4,
 };
 
 /** Parses the JSON-encoded scopes/metadata columns defensively. */

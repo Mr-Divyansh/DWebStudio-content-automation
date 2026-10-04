@@ -26,9 +26,11 @@ password. A connection stores a credential; it does not decide what to send.
 ```
 Open app  ->  Login / Create account  ->  Dashboard  ->  Connected Accounts
                                                           |
-                              WhatsApp  [ Connect ]
-                              Discord   [ Connect ]
-                              Telegram  [ Connect ]
+                              Instagram  [ Connect ]
+                              WhatsApp   [ Connect ]
+                              Gmail      [ Connect ]
+                              Discord    [ Connect ]
+                              Telegram   [ Connect ]
                                                           |
                                           authorize on the platform
                                                           |
@@ -38,6 +40,32 @@ Open app  ->  Login / Create account  ->  Dashboard  ->  Connected Accounts
 There is **no field anywhere in this flow** for an API key, access token,
 cookie, session file, page ID, phone ID or password. The user presses one button
 and authenticates on the platform's own domain.
+
+---
+
+## 2b. Providers and what each one actually uses
+
+| Platform | Official mechanism | Credential stored | Minimum scopes |
+|---|---|---|---|
+| **Instagram** | Facebook Login for Business (Instagram Platform) | Page access token (encrypted) | `instagram_basic`, `pages_show_list`, `instagram_manage_messages`, `business_management` |
+| **WhatsApp** | Meta Embedded Signup (Cloud API) | Business token (encrypted) | via Embedded Signup config |
+| **Gmail** | Google OAuth 2.0 + PKCE | Access **and** refresh token (encrypted) | `gmail.readonly`, `userinfo.email`, `openid` |
+| **Discord** | OAuth2 Authorization Code + PKCE | Access + refresh token (encrypted) | `identify`, `email` |
+| **Telegram** | Official Login Widget | **none** — the widget issues no token | n/a |
+
+`gmail.send` / `gmail.modify` are deliberately **not** requested: the app does
+not send mail yet, so asking for write access would break least privilege.
+
+---
+
+## 2c. Important: Instagram requires a professional account
+
+The Instagram Platform supports only **Instagram Business or Creator** accounts
+that are **linked to a Facebook Page**. A personal Instagram account cannot be
+connected — not by this app, and not by any compliant app.
+
+If a user connects an account that does not meet this, Meta rejects the grant
+and the card shows a clear `ERROR` with the reason. Nothing is faked.
 
 ---
 
@@ -76,7 +104,71 @@ than stored under a weak key.
 > Rotating this key invalidates every stored connection token, so users must
 > reconnect afterwards.
 
-### 4.2 Discord — easiest
+### 4.2 Instagram (Meta) — shares the Meta app with WhatsApp
+
+Instagram uses the same `META_APP_ID` / `META_APP_SECRET` as WhatsApp.
+
+1. In the Meta app, add the **Facebook Login** product (for Business, if the app
+   is a Business app) and the **Instagram** product.
+2. Request **Advanced Access** for:
+   - `instagram_basic`
+   - `pages_show_list`
+   - `instagram_manage_messages` (needed to read and reply to DMs)
+   - `business_management`
+3. Register the redirect URI `${APP_URL}/api/connections/instagram/callback`
+   under **Facebook Login → Settings → Valid OAuth redirect URIs**.
+4. *(Optional, recommended)* Create a **Facebook Login for Business**
+   configuration using the **Embedded Signup** variation and set:
+
+```bash
+META_INSTAGRAM_CONFIG_ID="..."
+```
+
+**With** `META_INSTAGRAM_CONFIG_ID` the Connect button opens Meta's Embedded
+Signup popup (the same smooth one-click UX as WhatsApp).
+**Without** it, the app falls back to Meta's standard Facebook OAuth dialog
+redirect, which needs only the app id and secret.
+
+Both paths are official. Neither asks for an Instagram password.
+
+### 4.3 Gmail (Google OAuth 2.0)
+
+1. [Google Cloud Console](https://console.cloud.google.com/) → create/select a project.
+2. Enable the **Gmail API**.
+3. **Credentials** → **Create credentials** → **OAuth client ID** →
+   application type **Web application**.
+4. Add the authorized redirect URI:
+
+```
+https://<your-host>/api/connections/gmail/callback
+```
+
+5. Copy the client ID and client secret.
+
+```bash
+GOOGLE_CLIENT_ID="...apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="..."
+```
+
+Scopes requested (minimum only):
+
+| Scope | Why |
+|---|---|
+| `gmail.readonly` | read messages and threads |
+| `userinfo.email` | show the connected address in the UI |
+| `openid` | identity verification |
+
+> While the app is in **Testing** mode, Google only lets you sign in with the
+> account listed as a *Test user* on the OAuth consent screen. Add your account
+> under **Google Auth Platform → Audience → Test users**. This is Google's rule,
+> not an application limitation.
+
+A refresh token is requested (`access_type=offline`), so the connection keeps
+working after the user leaves. If the user later revokes access at their Google
+account, the stored token stops working and the card reports *"please
+reconnect"* rather than silently failing.
+
+### 4.4 Discord — easiest
 
 1. <https://discord.com/developers/applications> → **New Application**.
 2. **OAuth2** → add redirect URL: `${APP_URL}/api/connections/discord/callback`.
@@ -229,7 +321,36 @@ hidden, and not replaced with a "free API" that does not work.
 npm test
 ```
 
-185 checks run, covering the existing Lead AI engine plus the new auth and
+195 checks run, covering the existing Lead AI engine plus the new auth and
 connection security properties (scrypt hashing, token encryption and AAD
 binding, session lifecycle, OAuth state single-use and user binding, the real
-Telegram HMAC algorithm, cross-user isolation, and "no token in the response").
+Telegram HMAC algorithm, cross-user isolation, and "no token in the response"),
+plus provider coverage for all five platforms (registration, labels, scope
+least-privilege, unconfigured providers reporting honestly).
+
+> On Windows the process may print a libuv assertion
+> (`UV_HANDLE_CLOSING`) *after* the summary line. This is a Node/Windows exit
+> quirk unrelated to the suite: the summary shows the real pass/fail counts.
+
+---
+
+## 9. Verified locally vs. requires provider credentials
+
+| Check | Result |
+|---|---|
+| Type check (`npm run lint`) | clean |
+| Tests (`npm test`) | 195 passed, 0 failed |
+| Build (`npm run build`) | succeeds |
+| Register / login / logout | works |
+| All five cards render, correct availability | works |
+| Connect payloads contain no secrets | verified |
+| Forged OAuth callback rejected (all providers) | verified |
+| Unknown platform + path traversal → 404 | verified |
+| Bogus Meta code → honest `ERROR`, never "Connected" | verified |
+| Disconnect clears rows and tokens (all five) | verified |
+| Dashboard / Leads unaffected | HTTP 200 |
+
+**Not verifiable without production credentials** (implemented correctly, but
+untested against the live provider): the real Instagram grant, the real Gmail
+consent round-trip, and the WhatsApp Embedded Signup approval. These require a
+live Meta app and a Google Cloud project.

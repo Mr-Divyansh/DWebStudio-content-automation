@@ -238,6 +238,9 @@ export class ConnectionService {
  */
 function toSummary(row: ConnectionRow | null, platform: Platform): ConnectionSummary {
   const connected = row?.status === 'CONNECTED';
+  // `metadata` holds non-secret identifiers only (ids, usernames, emails), so
+  // surfacing an email from it can never leak a credential.
+  const metadata = parseJsonObject(row?.metadata);
   return {
     platform,
     label: PLATFORM_LABELS[platform],
@@ -245,6 +248,7 @@ function toSummary(row: ConnectionRow | null, platform: Platform): ConnectionSum
     connected,
     displayName: row?.displayName ?? null,
     username: row?.externalUsername ?? null,
+    accountEmail: metadata.email || metadata.accountEmail || null,
     scopes: parseJsonArray(row?.scopes),
     connectedAt: row?.connectedAt ? row.connectedAt.toISOString() : null,
     lastVerifiedAt: row?.lastVerifiedAt ? row.lastVerifiedAt.toISOString() : null,

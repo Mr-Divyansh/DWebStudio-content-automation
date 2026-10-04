@@ -14,22 +14,60 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { MessageCircle, Hash, Send, Check, Plug, Unplug, RefreshCw, ShieldCheck, AlertTriangle, Settings } from 'lucide-react';
+import { MessageCircle, Hash, Send, Check, Plug, Unplug, RefreshCw, ShieldCheck, AlertTriangle, Settings, Instagram, Mail } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { ConnectedAccountItem, ConnectedPlatform } from '../../types';
 
 const ICONS: Record<ConnectedPlatform, React.ElementType> = {
+  INSTAGRAM: Instagram,
   WHATSAPP: MessageCircle,
+  GMAIL: Mail,
   DISCORD: Hash,
   TELEGRAM: Send,
 };
 
 /** Plain-language explanation of what each platform will be used for. */
 const PLATFORM_PURPOSE: Record<ConnectedPlatform, string> = {
+  INSTAGRAM: 'Reply to Instagram DMs from your professional account.',
   WHATSAPP: 'Reply to WhatsApp conversations from your business number.',
+  GMAIL: 'Work with leads arriving in your Gmail inbox.',
   DISCORD: 'Take part in Discord conversations with your community.',
   TELEGRAM: 'Reply to Telegram conversations from your business account.',
 };
+
+/**
+ * Fallback display names, used only if the server response is unavailable.
+ * Mirrors PLATFORM_LABELS on the server so the UI stays consistent.
+ */
+const PLATFORM_FALLBACK_LABEL: Record<ConnectedPlatform, string> = {
+  INSTAGRAM: 'Instagram',
+  WHATSAPP: 'WhatsApp',
+  GMAIL: 'Gmail',
+  DISCORD: 'Discord',
+  TELEGRAM: 'Telegram',
+};
+
+/**
+ * Loads Meta's official JavaScript SDK once and initialises it.
+ * Returns the `FB` global. Only the PUBLIC app id is sent to the browser —
+ * the app secret is never exposed.
+ */
+function loadMetaSdk(appId: string, graphVersion: string): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const w = window as any;
+    if (w.FB) return resolve(w.FB);
+    const s = document.createElement('script');
+    s.src = 'https://connect.facebook.net/en_US/sdk.js';
+    s.async = true;
+    s.crossOrigin = 'anonymous';
+    s.onload = () => {
+      w.FB.init({ app_id: appId, xfbml: true, version: graphVersion || 'v21.0' });
+      resolve(w.FB);
+    };
+    s.onerror = () => reject(new Error('Could not load the secure Meta sign-in window.'));
+    document.body.appendChild(s);
+  });
+}
 
 interface Props {
   /** Optional message shown after an OAuth round-trip (from the URL). */
@@ -65,46 +103,29 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
     load();
   }, [load]);
 
-  /* ------------------------------------------------------- WhatsApp (Embedded Signup) */
-
-  const connectWhatsApp = useCallback(async () => {
-    setBusy('WHATSAPP');
-    setError(null);
-    try {
-      const started = await api.startConnection('WHATSAPP');
+  /**
+   * Runs Meta's Embedded Signup for Instagram or WhatsApp and posts the
+   * resulting authorization code to our server for a verified exchange.
+   * Shared by both because Meta's official flow is identical apart from the
+   * configuration id.
+   */
+  const runMetaEmbeddedSignup = useCallback(
+    async (platform: 'INSTAGRAM' | 'WHATSAPP') => {
+      const started = await api.startConnection(platform);
       if (started.action !== 'embedded_signup' || !started.payload) {
-        throw new Error('WhatsApp sign-in is unavailable right now.');
+        throw new Error(`${platform === 'INSTAGRAM' ? 'Instagram' : 'WhatsApp'} sign-in is unavailable right now.`);
       }
       const { app_id: appId, config_id: configId, graph_version: graphVersion } = started.payload;
+      const FB = await loadMetaSdk(appId, graphVersion);
 
-      // Meta's official JavaScript SDK. The app secret never reaches the browser;
-      // only these three public values do.
-      await new Promise<void>((resolve, reject) => {
-        const w = window as any;
-        if (w.FB) return resolve();
-        const s = document.createElement('script');
-        s.src = 'https://connect.facebook.net/en_US/sdk.js';
-        s.async = true;
-        s.crossOrigin = 'anonymous';
-        s.onload = () => resolve();
-        s.onerror = () => reject(new Error('Could not load the secure Meta sign-in window.'));
-        document.body.appendChild(s);
-      });
-
-      const w = window as any;
-      w.FB.init({ app_id: appId, xfbml: true, version: graphVersion || 'v21.0' });
-
-      // Embedded Signup returns a short-lived (30s) authorization code. It is
+      // Embedded Signup returns a short-lived (~30s) authorization code. It is
       // posted to our server immediately, which exchanges it for a verified
-      // business token. The code itself never reaches the database.
+      // token. The code itself is never stored.
       const code: string = await new Promise((resolve, reject) => {
-        w.FB.login(
+        FB.login(
           (response: any) => {
             if (response?.authResponse?.code) return resolve(response.authResponse.code);
-            if (response?.authResponse?.access_token) {
-              return reject(new Error('Unexpected response from Meta. Please try again.'));
-            }
-            reject(new Error('WhatsApp authorization was cancelled.'));
+            reject(new Error('Authorization was cancelled.'));
           },
           {
             config_id: configId,
@@ -115,7 +136,43 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
         );
       });
 
-      await api.completeConnection('WHATSAPP', { code });
+      await api.completeConnection(platform, { code });
+    },
+    [],
+  );
+
+  /* --------------------------------------------------------- Instagram (Meta) */
+
+  const connectInstagram = useCallback(async () => {
+    setBusy('INSTAGRAM');
+    setError(null);
+    try {
+      // Two official launch styles: an Embedded Signup popup when the admin has
+      // configured a Facebook Login for Business config id, otherwise a plain
+      // redirect to Meta's OAuth dialog. The server decides which one applies.
+      const started = await api.startConnection('INSTAGRAM');
+      if (started.action === 'redirect' && started.url) {
+        window.location.href = started.url;
+        return;
+      }
+      await runMetaEmbeddedSignup('INSTAGRAM');
+      setMessage({ text: 'Instagram connected successfully.', ok: true });
+      await load();
+    } catch (err: any) {
+      setError(err?.message || 'Instagram could not be connected.');
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }, [load, runMetaEmbeddedSignup]);
+
+  /* ------------------------------------------------------- WhatsApp (Embedded Signup) */
+
+  const connectWhatsApp = useCallback(async () => {
+    setBusy('WHATSAPP');
+    setError(null);
+    try {
+      await runMetaEmbeddedSignup('WHATSAPP');
       setMessage({ text: 'WhatsApp connected successfully.', ok: true });
       await load();
     } catch (err: any) {
@@ -124,7 +181,26 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
     } finally {
       setBusy(null);
     }
-  }, [load]);
+  }, [load, runMetaEmbeddedSignup]);
+
+  /* ------------------------------------------------------------ Gmail (Google OAuth) */
+
+  const connectGmail = useCallback(async () => {
+    setBusy('GMAIL');
+    setError(null);
+    try {
+      const started = await api.startConnection('GMAIL');
+      if (started.action !== 'redirect' || !started.url) {
+        throw new Error('Gmail sign-in is unavailable right now.');
+      }
+      // Full-page redirect to Google's own sign-in and consent screens. The
+      // server verifies the returned code, then returns to ?tab=connections.
+      window.location.href = started.url;
+    } catch (err: any) {
+      setError(err?.message || 'Gmail could not be connected.');
+      setBusy(null);
+    }
+  }, []);
 
   /* ------------------------------------------------------------ Discord (OAuth2) */
 
@@ -187,7 +263,9 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
       setError(null);
       try {
         await api.disconnectAccount(platform);
-        setMessage({ text: `${platform.charAt(0)}${platform.slice(1).toLowerCase()} disconnected.`, ok: true });
+        // Pretty label from the current list, so "INSTAGRAM" reads as "Instagram".
+        const pretty = accounts.find((a) => a.platform === platform)?.label ?? PLATFORM_FALLBACK_LABEL[platform];
+        setMessage({ text: `${pretty} disconnected.`, ok: true });
         if (expanded === platform) setExpanded(null);
         await load();
       } catch (err: any) {
@@ -218,7 +296,9 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
   );
 
   const connectHandler: Record<ConnectedPlatform, () => void> = {
+    INSTAGRAM: connectInstagram,
     WHATSAPP: connectWhatsApp,
+    GMAIL: connectGmail,
     DISCORD: connectDiscord,
     TELEGRAM: connectTelegram,
   };
@@ -256,7 +336,8 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
             <p className="text-[11px] text-[#8C98A9] mt-0.5">{PLATFORM_PURPOSE[account.platform]}</p>
             {account.connected && (
               <p className="text-[10px] text-[#5A6675] mt-1 truncate">
-                {account.displayName || account.username || 'Authorized'}
+                {/* Prefer a verified address (Gmail/Discord), then a handle, then the name. */}
+                {account.accountEmail || account.username || account.displayName || 'Authorized'}
                 {account.connectedAt ? ` · connected ${new Date(account.connectedAt).toLocaleDateString()}` : ''}
               </p>
             )}
