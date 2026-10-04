@@ -1,37 +1,230 @@
-@import "tailwindcss";
+﻿@import "tailwindcss";
+
+/* ==========================================================================
+   D WEB STUDIO LEAD AI â€” CONTROL CENTER DESIGN SYSTEM
+   ==========================================================================
+   Dark-first and deliberately restrained: one accent, a neutral ramp, and four
+   semantic status colours. No neon, no heavy gradients, no glassmorphism.
+   Depth comes from layered flat surfaces, borders and spacing, not blur.
+   ========================================================================== */
+
+@theme {
+  /* Neutral ramp â€” near-black through to muted slate. */
+  --color-canvas: #0A0C11;
+  --color-surface: #10131A;
+  --color-raised: #161A23;
+  --color-overlay: #1C222D;
+  --color-line: #222835;
+  --color-line-strong: #2E3644;
+
+  /* Type ramp. */
+  --color-ink: #E9ECF2;
+  --color-ink-muted: #9AA4B2;
+  --color-ink-faint: #6A7484;
+
+  /* Single brand accent. */
+  --color-accent: #3B82F6;
+  --color-accent-soft: #60A5FA;
+  --color-accent-dim: #1E3A8A;
+
+  /* Semantic status. */
+  --color-ok: #34D399;
+  --color-ok-dim: #064E3B;
+  --color-warn: #FBBF24;
+  --color-warn-dim: #451A03;
+  --color-danger: #F87171;
+  --color-danger-dim: #450A0A;
+  --color-info: #60A5FA;
+  --color-info-dim: #172554;
+
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
 
 @layer base {
-  :root {
-    --bg-dark: #0C0F13;
-    --text-silver: #C3CAD6;
-    --text-cream: #F4F1EA;
-    --accent-blue: #2F7EF2;
-    --accent-light: #6FB2FF;
+  html {
+    background-color: var(--color-canvas);
+    color-scheme: dark;
   }
 
   body {
-    background-color: #0C0F13;
-    color: #F4F1EA;
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    margin: 0;
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  code, pre {
-    font-family: 'JetBrains Mono', monospace;
+  /* One consistent focus ring across every interactive element. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  code,
+  pre,
+  .tabular {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Reduced-motion users get a still interface, not a broken one. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+@layer components {
+  /* ---- Surfaces ---------------------------------------------------------- */
+  .cc-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: 12px;
+  }
+  .cc-card-hover {
+    transition: border-color 150ms ease, background-color 150ms ease;
+  }
+  .cc-card-hover:hover {
+    border-color: var(--color-line-strong);
+    background-color: var(--color-raised);
+  }
+
+  /* ---- Type -------------------------------------------------------------- */
+  .cc-page-title {
+    font-size: 1.375rem;
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--color-ink);
+  }
+  .cc-section-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-muted);
+  }
+  .cc-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+  }
+
+  /* ---- Controls ---------------------------------------------------------- */
+  .cc-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 8px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    padding: 0.5rem 0.875rem;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+    white-space: nowrap;
+  }
+  .cc-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .cc-btn-primary { background-color: var(--color-accent); color: #fff; }
+  .cc-btn-primary:hover:not(:disabled) { background-color: #2F6FE0; }
+  .cc-btn-secondary {
+    background-color: var(--color-raised);
+    border-color: var(--color-line-strong);
+    color: var(--color-ink);
+  }
+  .cc-btn-secondary:hover:not(:disabled) { background-color: var(--color-overlay); }
+  .cc-btn-ghost { background-color: transparent; color: var(--color-ink-muted); }
+  .cc-btn-ghost:hover:not(:disabled) { background-color: var(--color-raised); color: var(--color-ink); }
+  .cc-btn-danger {
+    background-color: var(--color-danger-dim);
+    border-color: #7F1D1D;
+    color: var(--color-danger);
+  }
+  .cc-btn-danger:hover:not(:disabled) { background-color: #5B1111; }
+
+  /* ---- Form controls ----------------------------------------------------- */
+  .cc-input {
+    width: 100%;
+    background-color: var(--color-canvas);
+    border: 1px solid var(--color-line-strong);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--color-ink);
+    transition: border-color 150ms ease;
+  }
+  .cc-input::placeholder { color: var(--color-ink-faint); }
+  .cc-input:hover { border-color: #3A4353; }
+  .cc-input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px rgb(59 130 246 / 0.12);
+  }
+  .cc-select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239AA4B2' d='M6 8.5 2.5 5h7z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.6rem center;
+    padding-right: 1.75rem;
+  }
+
+  /* ---- Status pill ------------------------------------------------------- */
+  .cc-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    border-radius: 999px;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.5;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+
+  /* ---- Skeleton ---------------------------------------------------------- */
+  .cc-skeleton {
+    background-color: var(--color-raised);
+    border-radius: 6px;
+    position: relative;
+    overflow: hidden;
+  }
+  .cc-skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.04), transparent);
+    animation: cc-shimmer 1.4s infinite;
+  }
+
+  /* ---- Scrollbars -------------------------------------------------------- */
+  .cc-scroll { scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; }
+  .cc-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+  .cc-scroll::-webkit-scrollbar-track { background: transparent; }
+  .cc-scroll::-webkit-scrollbar-thumb {
+    background-color: var(--color-line);
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  .cc-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-line-strong);
+    background-clip: content-box;
   }
 }
 
-/* Custom minimal scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: #0C0F13;
-}
-::-webkit-scrollbar-thumb {
-  background: #1C232D;
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #2F7EF2;
+@keyframes cc-shimmer {
+  100% { transform: translateX(100%); }
 }

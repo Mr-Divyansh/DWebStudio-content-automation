@@ -26,6 +26,14 @@ import {
   ConnectedAccountItem,
   ConnectionsResponse,
   ConnectedPlatform,
+  WorkspaceOverview,
+  WorkspacePipeline,
+  ConversationSummary,
+  ConversationDetail,
+  WorkspaceFollowUps,
+  WorkspaceHumanTasks,
+  WorkspaceAnalytics,
+  WorkspaceAutomation,
 } from '../types';
 
 export const api = {
@@ -584,5 +592,74 @@ export const api = {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || 'Verification failed');
     return body;
+  },
+
+  /**
+   * Runs the EXISTING follow-up endpoint. It still passes every safety gate
+   * server-side, so "sent" is only reported when a provider confirmed delivery.
+   */
+  async runFollowUps(): Promise<{
+    checked: number;
+    sent: number;
+    blocked: number;
+    failed: number;
+    skipped: number;
+  }> {
+    const res = await fetch('/api/agent/follow-ups/run', { method: 'POST', credentials: 'include' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'Follow-up run failed');
+    return body;
+  },
+
+  // ------------------------------------------------- control center (read-only)
+  // These power the dashboard pages. They are read models over the existing
+  // Lead/Conversation/Agent tables — no new business logic lives in the client.
+
+  async getOverview(): Promise<WorkspaceOverview> {
+    const res = await fetch('/api/workspace/overview', { credentials: 'include' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to load overview');
+    return res.json();
+  },
+
+  async getPipeline(): Promise<WorkspacePipeline> {
+    const res = await fetch('/api/workspace/pipeline', { credentials: 'include' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to load pipeline');
+    return res.json();
+  },
+
+  async getConversationList(): Promise<{ conversations: ConversationSummary[] }> {
+    const res = await fetch('/api/workspace/conversations', { credentials: 'include' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to load conversations');
+    return res.json();
+  },
+
+  async getConversation(id: string): Promise<ConversationDetail> {
+    const res = await fetch(`/api/workspace/conversations/${id}`, { credentials: 'include' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to load conversation');
+    return res.json();
+  },
+
+  async getFollowUps(): Promise<WorkspaceFollowUps> {
+    const res = await fetch('/api/workspace/follow-ups', { credentials: 'include' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to load follow-ups');
+    return res.json();
+  },
+
+  async getHumanTasks(): Promise<WorkspaceHumanTasks> {
+    const res = await fetch('/api/workspace/human-tasks', { credentials: 'include' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to load human tasks');
+    return res.json();
+  },
+
+  async getAnalytics(): Promise<WorkspaceAnalytics> {
+    const res = await fetch('/api/workspace/analytics', { credentials: 'include' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to load analytics');
+    return res.json();
+  },
+
+  async getAutomation(): Promise<WorkspaceAutomation> {
+    const res = await fetch('/api/workspace/automation', { credentials: 'include' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to load automation');
+    return res.json();
   },
 };

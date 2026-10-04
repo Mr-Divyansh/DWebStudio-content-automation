@@ -482,6 +482,15 @@ export interface LeadItem {
   importantMessages?: string | null;
   followUpNeeded: boolean;
   followUpReason?: string | null;
+  /** When the next follow-up is scheduled. Returned by /api/leads. */
+  followUpNextAt?: string | null;
+  followUpAttempts?: number;
+  /** True when a human has taken over; the AI must not message this lead. */
+  aiPaused?: boolean;
+  doNotContact?: boolean;
+  conversationStage?: string;
+  lastInboundAt?: string | null;
+  lastOutboundAt?: string | null;
   portfolioMatch: string;
   suggestedNextAction?: string | null;
   confidence: string;
@@ -633,6 +642,147 @@ export interface ConnectionsResponse {
   /** True when the server can securely store tokens. */
   storageReady: boolean;
   notice: string | null;
+}
+
+/* ==========================================================================
+   CONTROL CENTER — read models served by /api/workspace/*
+   ==========================================================================
+   Every field mirrors real database aggregates. A nullable field means "not
+   enough data" and MUST be rendered as "No data yet", never as zero.
+   ========================================================================== */
+
+export interface WorkspaceOverview {
+  cards: {
+    totalLeads: number;
+    newLeadsLast7Days: number;
+    activeConversations: number;
+    followUpsDue: number;
+    qualifiedLeads: number;
+    interestedLeads: number;
+    /** null when no lead has reached a decided state yet. */
+    conversionRate: number | null;
+    decidedLeads: number;
+    humanRequired: number;
+    aiPaused: number;
+    messagesSent: number;
+    repliesReceived: number;
+    followUpsCompleted: number;
+    aiActivityToday: number;
+  };
+  agent: {
+    state: string;
+    autoDm: boolean;
+    lastAction: string | null;
+    leadsProcessed: number;
+  } | null;
+  recentActivity: Array<{
+    id: string;
+    type: string;
+    status: string;
+    message: string;
+    createdAt: string;
+    leadId: string | null;
+    leadName: string | null;
+  }>;
+}
+
+export interface WorkspacePipeline {
+  groups: Array<{ key: string; label: string; count: number; statuses: string[] }>;
+  unmapped: Array<{ status: string; count: number }>;
+  total: number;
+}
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  source: string;
+  messageCount: number;
+  updatedAt: string;
+  lastMessageAt: string | null;
+  preview: string | null;
+  leadId: string | null;
+  leadName: string | null;
+  leadStatus: string | null;
+  aiPaused: boolean;
+}
+
+export interface ConversationDetail {
+  id: string;
+  title: string;
+  source: string;
+  createdAt: string;
+  updatedAt: string;
+  lead: { id: string; businessName: string; status: string; aiPaused: boolean; notes: string | null } | null;
+  messages: Array<{
+    id: string;
+    /** Real signal written by the importer: USER | CLIENT | UNKNOWN | AI | SYSTEM. */
+    senderType: string;
+    sender: string;
+    content: string;
+    timestamp: string;
+  }>;
+}
+
+/** A lead row as it appears on the follow-up board and human-task queue. */
+export interface WorkspaceLeadTask {
+  id: string;
+  businessName: string;
+  personName: string;
+  status: string;
+  source: string;
+  conversationStage: string;
+  followUpNextAt: string | null;
+  followUpAttempts: number;
+  followUpMaxAttempts: number;
+  aiPaused: boolean;
+  doNotContact: boolean;
+  opportunityScore: number;
+  lastOutboundAt: string | null;
+  lastInboundAt: string | null;
+  updatedAt: string;
+  reason?: string;
+}
+
+export interface WorkspaceFollowUps {
+  overdue: WorkspaceLeadTask[];
+  dueToday: WorkspaceLeadTask[];
+  upcoming: WorkspaceLeadTask[];
+  completed: WorkspaceLeadTask[];
+}
+
+export interface WorkspaceHumanTasks {
+  needsHuman: WorkspaceLeadTask[];
+  takenOver: WorkspaceLeadTask[];
+  optedOut: WorkspaceLeadTask[];
+  escalations: Array<{ id: string; type: string; message: string; createdAt: string; leadId: string | null; leadName: string | null }>;
+}
+
+export interface WorkspaceAnalytics {
+  rangeDays: number;
+  series: Array<{ date: string; leads: number; inbound: number }>;
+  bySource: Array<{ key: string; count: number }>;
+  byStatus: Array<{ key: string; count: number }>;
+  byIntent: Array<{ key: string; count: number }>;
+  outbound: Array<{ key: string; count: number }>;
+  agentEvents: Array<{ key: string; count: number }>;
+  totals: { leadsInRange: number; inboundInRange: number };
+}
+
+export interface WorkspaceAutomation {
+  state: string;
+  autoDm: boolean;
+  counters: {
+    leadsProcessed: number;
+    messagesSent: number;
+    repliesReceived: number;
+    interested: number;
+    notInterested: number;
+    humanRequired: number;
+    failed: number;
+  } | null;
+  limits: { maxSendsPerHour: number; maxSendsPerLead: number; followUpDelayHours: number } | null;
+  delivery: { attempted: number; delivered: number; inboundReplies: number };
+  recentRuns: Array<{ id: string; type: string; status: string; message: string; createdAt: string }>;
 }
 
 export interface VaultKeyStatus {

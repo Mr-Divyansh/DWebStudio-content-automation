@@ -5,6 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { authRouter, requireAuth, requireOwner } from './server/src/api/auth.js';
 import { connectionRouter, discordCallbackHandler, telegramCallbackHandler, instagramCallbackHandler, gmailCallbackHandler } from './server/src/api/routes/connectionRoutes.js';
+import { workspaceRouter } from './server/src/api/routes/workspaceRoutes.js';
 import { leadRouter } from './server/src/api/routes/leadRoutes.js';
 import { importRouter } from './server/src/api/routes/importRoutes.js';
 import { learningRouter } from './server/src/api/routes/learningRoutes.js';
@@ -91,6 +92,9 @@ async function startServer() {
   app.use('/api/config', configRouter);
   // Platform connections — the Connected Accounts experience.
   app.use('/api/connections', connectionRouter);
+  // Control-center read models (overview, pipeline, conversations, follow-ups,
+  // human tasks, analytics, automation). Read-only over existing tables.
+  app.use('/api/workspace', workspaceRouter);
   // Operator credential vault: ADMINISTRATOR ONLY.
   app.use('/api/vault', requireOwner, vaultRouter);
   app.use('/api/agent', agentRouter);

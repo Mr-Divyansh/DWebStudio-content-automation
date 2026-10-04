@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import { authRouter, requireAuth, requireOwner } from './api/auth.js';
 import { connectionRouter, discordCallbackHandler, telegramCallbackHandler, instagramCallbackHandler, gmailCallbackHandler } from './api/routes/connectionRoutes.js';
+import { workspaceRouter } from './api/routes/workspaceRoutes.js';
 import { leadRouter } from './api/routes/leadRoutes.js';
 import { importRouter } from './api/routes/importRoutes.js';
 import { learningRouter } from './api/routes/learningRoutes.js';
@@ -85,6 +86,9 @@ export function createExpressApp() {
   app.use('/api/config', configRouter);
   // Platform connections — the Connected Accounts experience.
   app.use('/api/connections', connectionRouter);
+  // Control-center read models (overview, pipeline, conversations, follow-ups,
+  // human tasks, analytics, automation). Read-only over existing tables.
+  app.use('/api/workspace', workspaceRouter);
   // Operator credential vault: ADMINISTRATOR ONLY. A normal user never needs it
   // because connecting a platform is done via /api/connections instead.
   app.use('/api/vault', requireOwner, vaultRouter);
