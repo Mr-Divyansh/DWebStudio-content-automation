@@ -614,6 +614,34 @@ export type ConnectedPlatform = 'INSTAGRAM' | 'WHATSAPP' | 'GMAIL' | 'DISCORD' |
 export type ConnectionStatus = 'NOT_CONNECTED' | 'PENDING' | 'CONNECTED' | 'ERROR' | 'REVOKED';
 
 /**
+ * The single state a provider card renders. Richer than the raw status so the UI
+ * can distinguish "ready to connect" from "setup required" from "authorization
+ * failed" — which a boolean `available` could never express.
+ */
+export type ConnectionState =
+  | 'CONNECTED'
+  | 'READY'
+  | 'AUTHORIZATION_FAILED'
+  | 'SETUP_REQUIRED'
+  | 'UNAVAILABLE';
+
+/**
+ * Everything an administrator needs to finish a provider's one-time setup.
+ *
+ * SECURITY: `missing` and `required` are environment variable NAMES only. The
+ * API has no field that can carry a value, so a secret cannot reach the browser.
+ */
+export interface ProviderSetup {
+  missing: string[];
+  required: string[];
+  requiresProviderApproval: boolean;
+  summary: string;
+  steps: string[];
+  redirectUri: string;
+  docsUrl: string;
+}
+
+/**
  * Token-free view of a connected account. The API physically cannot return a
  * token, so this type has no field for one.
  */
@@ -631,10 +659,18 @@ export interface ConnectedAccountItem {
   lastVerifiedAt: string | null;
   lastError: string | null;
   connectHint: string | null;
-  /** False when the one-time developer setup is not finished on the server. */
+  /**
+   * False when the one-time developer setup is not finished on the server.
+   * @deprecated Prefer `state` — this boolean cannot express "setup required"
+   * versus "authorization failed", which is why Connect used to be disabled.
+   */
   available: boolean;
   /** Plain-language reason the Connect button is disabled. */
   unavailableReason: string | null;
+  /** The state the card renders. Drives the button label and colour. */
+  state: ConnectionState;
+  /** Actionable setup checklist. Variable NAMES only, never values. */
+  setup: ProviderSetup;
 }
 
 export interface ConnectionsResponse {

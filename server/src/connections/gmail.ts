@@ -35,7 +35,7 @@
 
 import { createHash } from 'node:crypto';
 import { ConnectionService } from './connectionService.js';
-import { ConnectionError, type VerifiedConnection, type Platform } from './types.js';
+import { ConnectionError, type VerifiedConnection, type Platform, callbackUri } from './types.js';
 import type { AdapterStartContext, AdapterStartResult, PlatformAdapter } from './adapterTypes.js';
 
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -51,11 +51,12 @@ export const GMAIL_SCOPES = [
 ];
 
 export function gmailConfig(env: NodeJS.ProcessEnv = process.env) {
-  const appUrl = (env.APP_URL ?? '').trim().replace(/\/+$/, '');
   return {
     clientId: (env.GOOGLE_CLIENT_ID ?? '').trim(),
     clientSecret: (env.GOOGLE_CLIENT_SECRET ?? '').trim(),
-    redirectUri: `${appUrl}/api/connections/gmail/callback`,
+    // Derived from the single appOrigin() helper so this can never become a
+    // relative URL (which Google cannot match) if APP_URL is unset.
+    redirectUri: callbackUri('GMAIL', env),
   };
 }
 

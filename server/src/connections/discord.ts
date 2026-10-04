@@ -21,7 +21,7 @@
 
 import { createHash } from 'node:crypto';
 import { ConnectionService } from './connectionService.js';
-import { ConnectionError, type VerifiedConnection, type Platform } from './types.js';
+import { ConnectionError, type VerifiedConnection, type Platform, callbackUri } from './types.js';
 import type { AdapterStartContext, AdapterStartResult, PlatformAdapter } from './adapterTypes.js';
 
 const AUTHORIZE_URL = 'https://discord.com/oauth2/authorize';
@@ -40,7 +40,7 @@ export function discordConfig(env: NodeJS.ProcessEnv = process.env) {
   return {
     clientId: (env.DISCORD_CLIENT_ID ?? '').trim(),
     clientSecret: (env.DISCORD_CLIENT_SECRET ?? '').trim(),
-    redirectUri: `${(env.APP_URL ?? '').trim().replace(/\/+$/, '')}/api/connections/discord/callback`,
+    redirectUri: callbackUri('DISCORD', env),
   };
 }
 

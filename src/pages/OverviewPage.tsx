@@ -111,6 +111,44 @@ export const OverviewPage: React.FC<OverviewProps> = ({ connections, onNavigate 
   const agent = overview.agent;
   const connectedCount = connections ? connections.accounts.filter((a) => a.connected).length : null;
 
+  /**
+   * ATTENTION REQUIRED
+   * Everything that is not simply "ready": a failed authorization, a provider
+   * that needs approval, or a missing configuration. Each names the remedy so
+   * the Command Center is actionable rather than merely decorative.
+   */
+  const attentionItems = (connections?.accounts ?? [])
+    .filter((a) => !a.connected && a.state !== 'READY')
+    .map((a) => {
+      const name = a.label;
+      if (a.state === 'AUTHORIZATION_FAILED') {
+        return {
+          platform: a.platform,
+          title: `${name} authorization failed`,
+          detail: a.lastError || 'The provider did not complete the authorization. Please try connecting again.',
+          action: 'Retry',
+        };
+      }
+      if (a.state === 'SETUP_REQUIRED') {
+        const missing = a.setup.missing.length ? `Missing ${a.setup.missing.join(', ')}.` : '';
+        const approval = a.setup.requiresProviderApproval
+          ? ' This provider also requires Meta to approve the app before any account can be connected.'
+          : '';
+        return {
+          platform: a.platform,
+          title: `${name} setup required`,
+          detail: `${missing}${approval} Open the setup screen for the exact steps.`,
+          action: 'Configure',
+        };
+      }
+      return {
+        platform: a.platform,
+        title: `${name} unavailable`,
+        detail: connections?.notice || 'The server cannot currently store credentials for this provider.',
+        action: 'View details',
+      };
+    });
+
   return (
     <div className="p-6 lg:p-8 max-w-[1600px]">
       <PageHeader
@@ -307,16 +345,19 @@ export const OverviewPage: React.FC<OverviewProps> = ({ connections, onNavigate 
               const Icon = CHANNEL_ICONS[platform];
               const connected = account?.connected === true;
               const attention = account?.status === 'ERROR';
-              const needsSetup = !account?.available;
+              const state = account?.state
+                ?? (connected ? 'CONNECTED' : attention ? 'AUTHORIZATION_FAILED' : account?.available ? 'READY' : 'SETUP_REQUIRED');
+              const needsSetup = state === 'SETUP_REQUIRED';
               const tone: Tone = connected ? 'ok' : attention ? 'danger' : needsSetup ? 'warn' : 'neutral';
               const label = connected
                 ? 'Connected'
                 : attention
-                  ? 'Needs attention'
+                  ? 'Authorization failed'
                   : needsSetup
                     ? 'Setup required'
-                    : 'Disconnected';
+                    : 'Ready to connect';
 
+              // Status · Account · Last verified · Action, per the Command Center spec.
               return (
                 <li key={platform}>
                   <button
@@ -331,7 +372,16 @@ export const OverviewPage: React.FC<OverviewProps> = ({ connections, onNavigate 
                       <p className="truncate text-[11px] text-ink-faint">
                         {connected
                           ? account?.accountEmail || account?.username || account?.displayName || 'Authorized'
-                          : account?.lastError || 'Not connected'}
+                          : account?.lastError
+                            || (needsSetup && account?.setup.missing.length
+                              ? `Missing: ${account.setup.missing.join(', ')}`
+                              : 'Not connected')}
+                      </p>
+                    </div>
+                    <div className="hidden shrink-0 text-right sm:block">
+                      <p className="cc-label">Last verified</p>
+                      <p className="text-[11px] text-ink-muted">
+                        {account?.lastVerifiedAt ? timeAgo(account.lastVerifiedAt) : '—'}
                       </p>
                     </div>
                     <Badge tone={tone}>{label}</Badge>
@@ -342,6 +392,33 @@ export const OverviewPage: React.FC<OverviewProps> = ({ connections, onNavigate 
           </ul>
         </Card>
       </div>
+
+      {/* ATTENTION REQUIRED — nothing is silently disabled; every gap is named. */}
+      {attentionItems.length > 0 && (
+        <Card>
+          <CardHeader title="Attention required" />
+          <ul className="divide-y divide-line">
+            {attentionItems.map((item) => {
+              const Icon = CHANNEL_ICONS[item.platform];
+              return (
+                <li key={item.platform} className="flex items-start gap-3 px-5 py-3">
+                  <Icon className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-ink">{item.title}</p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">{item.detail}</p>
+                  </div>
+                  <button
+                    onClick={() => onNavigate(`channel:${item.platform}`)}
+                    className="cc-btn cc-btn-ghost shrink-0"
+                  >
+                    {item.action} <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
     </div>
   );
 };

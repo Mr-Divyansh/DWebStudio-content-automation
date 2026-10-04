@@ -19,10 +19,96 @@
  * CONNECTED from user input, so the UI can never show a fake "connected" state.
  */
 
+/**
+ * APPLICATION ORIGIN
+ * ============================================================================
+ * Every OAuth redirect_uri and every "return to the app" redirect is built from
+ * this one function, so the callback can never drift away from the address the
+ * browser is actually using.
+ *
+ * WHY THIS EXISTS
+ * Previously each adapter built its own redirect URI from APP_URL alone. If
+ * APP_URL was unset the URI silently became the relative string
+ * `/api/connections/gmail/callback`, which Google cannot match against a
+ * registered absolute URI — producing a confusing `redirect_uri_mismatch` at
+ * the consent screen with no clue as to why.
+ *
+ * RESOLUTION ORDER
+ *   1. APP_URL            — authoritative when the deployment sets it.
+ *   2. PORT               — the port this server is actually listening on.
+ *   3. localhost:3300     — last-resort local default.
+ *
+ * The result never has a trailing slash, so callers can concatenate paths
+ * safely.
+ */
+
 export const PLATFORMS = ['INSTAGRAM', 'WHATSAPP', 'GMAIL', 'DISCORD', 'TELEGRAM'] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
+const DEFAULT_PORT = '3300';
+
+export function appOrigin(env: NodeJS.ProcessEnv = process.env): string {
+  const explicit = (env.APP_URL ?? '').trim().replace(/\/+$/, '');
+  if (explicit) return explicit;
+
+  const port = (env.PORT ?? '').trim() || DEFAULT_PORT;
+  return `http://localhost:${port}`;
+}
+
+/**
+ * The exact URI that must be registered with the provider for this deployment.
+ * Shown in the setup modal so an administrator can copy it verbatim instead of
+ * guessing at the port.
+ */
+export function callbackUri(platform: string, env: NodeJS.ProcessEnv = process.env): string {
+  return `${appOrigin(env)}/api/connections/${platform.toLowerCase()}/callback`;
+}
+
 export type ConnectionStatus = 'NOT_CONNECTED' | 'PENDING' | 'CONNECTED' | 'ERROR' | 'REVOKED';
+
+/**
+ * WHAT THE UI ACTUALLY NEEDS TO RENDER
+ * ============================================================================
+ * `available` alone could only express true/false, which forced the frontend to
+ * decide between "disable the button" and "lie". This richer state lets the card
+ * show an honest label for every situation while staying fully clickable.
+ */
+export type ConnectionState =
+  /** Live connection with a provider-verified credential. */
+  | 'CONNECTED'
+  /** No credential yet, but the official flow can start immediately. */
+  | 'READY'
+  /** Credentials exist but the provider reported an error (user can retry). */
+  | 'AUTHORIZATION_FAILED'
+  /** One-time server/console setup is incomplete. Clicking opens setup help. */
+  | 'SETUP_REQUIRED'
+  /** Encryption/DB problem on our side — retrying cannot help. */
+  | 'UNAVAILABLE';
+
+/**
+ * Exactly what an administrator must do before a provider can be connected.
+ *
+ * SECURITY CONTRACT — this object is sent to the browser, so:
+ *   - It contains environment variable NAMES only. Never a value.
+ *   - `missing` and `required` are both arrays of NAMES, never `"KEY=value"`.
+ *   - A test asserts no value ever appears here.
+ */
+export interface ProviderSetup {
+  /** Env var names this provider needs and the server does not have. */
+  missing: string[];
+  /** All env var names this provider needs, for reference. */
+  required: string[];
+  /** True when even a fully configured server cannot connect until Meta approves. */
+  requiresProviderApproval: boolean;
+  /** One-line summary for the modal header. */
+  summary: string;
+  /** Ordered, human-readable administrator steps. */
+  steps: string[];
+  /** The exact redirect URI this deployment must register with the provider. */
+  redirectUri: string;
+  /** Official provider documentation for this setup. */
+  docsUrl: string;
+}
 
 /** Safe, token-free shape returned to the browser. */
 export interface ConnectionSummary {

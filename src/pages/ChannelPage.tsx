@@ -26,6 +26,7 @@ import {
   type Tone,
 } from '../components/ui';
 import type { ConnectedAccountItem, ConnectedPlatform, ConnectionsResponse } from '../types';
+import { ProviderSetupModal } from '../components/accounts/ProviderSetupModal';
 
 interface ChannelPageProps {
   platform: ConnectedPlatform;
@@ -55,18 +56,23 @@ export const ChannelPage: React.FC<ChannelPageProps> = ({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** Drives the reusable setup checklist instead of a dead Connect button. */
+  const [setupOpen, setSetupOpen] = useState(false);
 
   useEffect(() => {
     setError(null);
     setNotice(null);
     setBusy(false);
+    setSetupOpen(false);
   }, [platform]);
 
   const Icon = CHANNEL_ICONS[platform];
   const label = account?.label ?? humanise(platform);
   const connected = account?.connected === true;
   const attention = account?.status === 'ERROR';
-  const needsSetup = !account?.available;
+  // Prefer the server's single derived state; fall back for older responses.
+  const state = account?.state ?? (connected ? 'CONNECTED' : attention ? 'AUTHORIZATION_FAILED' : account?.available ? 'READY' : 'SETUP_REQUIRED');
+  const needsSetup = state === 'SETUP_REQUIRED';
 
   const status: { text: string; tone: Tone } = connected
     ? { text: 'Connected', tone: 'ok' }
@@ -74,7 +80,7 @@ export const ChannelPage: React.FC<ChannelPageProps> = ({
       ? { text: 'Needs attention', tone: 'danger' }
       : needsSetup
         ? { text: 'Setup required', tone: 'warn' }
-        : { text: 'Disconnected', tone: 'neutral' };
+        : { text: 'Ready to connect', tone: 'neutral' };
 
   const disconnect = useCallback(async () => {
     setBusy(true);
@@ -166,16 +172,16 @@ if (!connections) {
                     <Unplug className="h-3.5 w-3.5" /> Disconnect
                   </Button>
                 </>
-              ) : (
-                <Button
-                  variant="primary"
-                  onClick={onManage}
-                  title={account?.unavailableReason ?? undefined}
-                >
-                  <Plug className="h-3.5 w-3.5" /> Connect {label}
-                </Button>
-              )}
-            </div>
+              ) : needsSetup ? (
+                  <Button variant="secondary" onClick={() => setSetupOpen(true)}>
+                    <Settings className="h-3.5 w-3.5" /> Setup {label}
+                  </Button>
+                ) : (
+                  <Button variant="primary" onClick={onManage}>
+                    <Plug className="h-3.5 w-3.5" /> {attention ? `Retry ${label}` : `Connect ${label}`}
+                  </Button>
+                )}
+              </div>
           </div>
         </Card>
 
@@ -185,7 +191,14 @@ if (!connections) {
           <div className="p-5">
             {needsSetup && (
               <div className="mb-4 rounded-lg border border-warn/25 bg-warn-dim/40 px-3.5 py-3 text-[11px] leading-relaxed text-warn">
-                {account?.unavailableReason ?? 'This channel has not been configured by the administrator yet.'}
+                <p className="font-semibold">{label} setup required</p>
+                <p className="mt-1">
+                  {account?.setup.missing.length
+                    ? `Missing: ${account.setup.missing.join(', ')}. `
+                    : ''}
+                  Press “Setup {label}” for the exact steps.{' '}
+                  {account?.setup.requiresProviderApproval && 'This provider also requires Meta approval.'}
+                </p>
               </div>
             )}
             {attention && account?.lastError && (
@@ -217,6 +230,13 @@ if (!connections) {
           </div>
         </Card>
       </div>
+
+      <ProviderSetupModal
+        label={label}
+        setup={account?.setup}
+        open={setupOpen}
+        onClose={() => setSetupOpen(false)}
+      />
     </div>
   );
 };

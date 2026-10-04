@@ -26,7 +26,8 @@ import { UserService, normalizeEmail, MIN_PASSWORD_LENGTH } from '../server/src/
 import { ConnectionService } from '../server/src/connections/connectionService.js';
 import { verifyTelegramAuth } from '../server/src/connections/telegram.js';
 import { allAdapters, getAdapter } from '../server/src/connections/adapters.js';
-import { PLATFORMS, PLATFORM_LABELS, PLATFORM_ORDER, isPlatform } from '../server/src/connections/types.js';
+import { PLATFORMS, PLATFORM_LABELS, PLATFORM_ORDER, isPlatform, appOrigin, callbackUri } from '../server/src/connections/types.js';
+import { providerSetup } from '../server/src/connections/providerSetup.js';
 import { isInstagramConfigured, isInstagramEmbeddedSignupConfigured, INSTAGRAM_SCOPES } from '../server/src/connections/instagram.js';
 import { isGmailConfigured, GMAIL_SCOPES } from '../server/src/connections/gmail.js';
 import { isDiscordConfigured } from '../server/src/connections/discord.js';
@@ -458,6 +459,63 @@ export async function runAuthAndConnectionTests(): Promise<TestResult[]> {
         }
         assert(isPlatform('INSTAGRAM'), 'INSTAGRAM was rejected');
         assert(isPlatform('GMAIL'), 'GMAIL was rejected');
+      }),
+    );
+
+    results.push(
+      await check('Providers: setup checklist names missing variables but NEVER exposes values', () => {
+        // Hermetic: strip every provider variable so `missing` is populated with
+        // REAL names, then assert the payload cannot carry a value.
+        const KEYS = [
+          'META_APP_ID', 'META_APP_SECRET', 'META_INSTAGRAM_CONFIG_ID', 'META_EMBEDDED_SIGNUP_CONFIG_ID',
+          'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET',
+          'DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET',
+          'TELEGRAM_BOT_ID', 'TELEGRAM_BOT_USERNAME', 'TELEGRAM_BOT_TOKEN',
+        ];
+        const saved: Record<string, string | undefined> = {};
+        for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k]; }
+        try {
+          for (const platform of PLATFORMS) {
+            const setup = providerSetup(platform);
+            const json = JSON.stringify(setup);
+
+            // Names only: never `KEY=value`.
+            assert(!/=/.test(json), `${platform} setup contains an assignment: ${json}`);
+            // Every required variable must be named, and all missing when stripped.
+            assert(setup.required.length > 0, `${platform} has no required variables`);
+            assert(setup.missing.length === setup.required.length, `${platform} should report all ${setup.required.length} missing`);
+            // Actionable: steps and a copyable redirect URI must exist.
+            assert(setup.steps.length >= 3, `${platform} has too few setup steps`);
+            assert(/^https?:\/\/.+\/api\/connections\/.+\/callback$/.test(setup.redirectUri), `${platform} redirectUri malformed: ${setup.redirectUri}`);
+            assert(setup.docsUrl.startsWith('https://'), `${platform} has no docs URL`);
+            assert(typeof setup.requiresProviderApproval === 'boolean', `${platform} approval flag missing`);
+            // Meta platforms must be flagged as needing provider approval.
+            if (platform === 'WHATSAPP' || platform === 'INSTAGRAM') {
+              assert(setup.requiresProviderApproval === true, `${platform} must declare Meta approval is required`);
+            }
+          }
+          return '5/5 name variables without leaking values';
+        } finally {
+          for (const k of KEYS) {
+            if (saved[k] === undefined) delete process.env[k];
+            else process.env[k] = saved[k];
+          }
+        }
+      }),
+    );
+
+    results.push(
+      await check('Providers: redirect URIs follow the real configured origin, never a hardcoded port', () => {
+        // APP_URL must win when set.
+        assert(appOrigin({ APP_URL: 'https://lead.example.com/' } as any) === 'https://lead.example.com', 'APP_URL ignored');
+        // PORT is the fallback, so a server on 3300 gets a correct absolute URI.
+        assert(appOrigin({ PORT: '8080' } as any) === 'http://localhost:8080', 'PORT fallback broken');
+        // Even with NOTHING set the URI stays absolute — the old bug produced a
+        // relative "/api/connections/gmail/callback" that Google cannot match.
+        const derived = callbackUri('GMAIL', {} as any);
+        assert(derived.startsWith('http'), `derived redirect URI is not absolute: ${derived}`);
+        assert(derived === 'http://localhost:3300/api/connections/gmail/callback', `unexpected default: ${derived}`);
+        return derived;
       }),
     );
 

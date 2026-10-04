@@ -38,7 +38,7 @@
  */
 
 import { ConnectionService } from './connectionService.js';
-import { ConnectionError, type VerifiedConnection, type Platform } from './types.js';
+import { ConnectionError, type VerifiedConnection, type Platform, callbackUri } from './types.js';
 import type { AdapterStartContext, AdapterStartResult, PlatformAdapter } from './adapterTypes.js';
 
 const GRAPH_VERSION = (process.env.META_GRAPH_API_VERSION ?? 'v21.0').replace(/^v/, '');
@@ -57,13 +57,12 @@ export const INSTAGRAM_SCOPES = [
 ];
 
 export function instagramConfig(env: NodeJS.ProcessEnv = process.env) {
-  const appUrl = (env.APP_URL ?? '').trim().replace(/\/+$/, '');
   return {
     appId: (env.META_APP_ID ?? '').trim(),
     appSecret: (env.META_APP_SECRET ?? '').trim(),
     /** Facebook Login for Business configuration id (Embedded Signup). */
     configId: (env.META_INSTAGRAM_CONFIG_ID ?? '').trim(),
-    redirectUri: `${appUrl}/api/connections/instagram/callback`,
+    redirectUri: callbackUri('INSTAGRAM', env),
     graphVersion: `v${GRAPH_VERSION}`,
   };
 }

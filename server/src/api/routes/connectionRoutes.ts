@@ -21,7 +21,16 @@
 import { Router, type Request, type Response } from 'express';
 import { getAdapter } from '../../connections/adapters.js';
 import { ConnectionService } from '../../connections/connectionService.js';
-import { ConnectionError, isPlatform, PLATFORM_LABELS, type Platform, type ConnectionSummary } from '../../connections/types.js';
+import { providerSetup } from '../../connections/providerSetup.js';
+import {
+  ConnectionError,
+  isPlatform,
+  PLATFORM_LABELS,
+  appOrigin,
+  type Platform,
+  type ConnectionSummary,
+  type ConnectionState,
+} from '../../connections/types.js';
 import type { PublicUser } from '../userService.js';
 
 export const connectionRouter = Router();
@@ -61,24 +70,49 @@ function toErrorResponse(err: unknown, res: Response): void {
 }
 
 /**
+ * Derives the single state the UI renders from.
+ *
+ * Order matters: a live verified credential always wins, because the user CAN
+ * still disconnect or re-verify even if the admin later removed a variable. A
+ * stored error outranks "not configured", since the user is the one who can fix
+ * it by retrying.
+ */
+function deriveState(summary: ConnectionSummary, configured: boolean, storageReady: boolean): ConnectionState {
+  if (summary.connected) return 'CONNECTED';
+  if (summary.status === 'ERROR') return 'AUTHORIZATION_FAILED';
+  if (!storageReady) return 'UNAVAILABLE';
+  if (!configured) return 'SETUP_REQUIRED';
+  return 'READY';
+}
+
+/**
  * GET /api/connections
  * One card per supported platform for the CURRENT user. Token-free by design.
+ *
+ * Every card now carries BOTH `available` (backwards compatible) and the richer
+ * `state` + `setup`, so the UI can keep every Connect button clickable and open
+ * an actionable setup modal instead of silently disabling the button.
  */
 connectionRouter.get('/', async (req: Request, res: Response) => {
   const user = currentUser(req, res);
   if (!user) return;
   try {
+    const storageReady = ConnectionService.isEncryptionReady();
     const summaries: ConnectionSummary[] = await ConnectionService.listForUser(user.id);
-    // Attach "why is Connect disabled" without exposing any configuration value.
-    const enriched = summaries.map((s) => ({
-      ...s,
-      available: getAdapter(s.platform).isConfigured(),
-      unavailableReason: getAdapter(s.platform).unavailableReason(),
-    }));
+    const enriched = summaries.map((s) => {
+      const configured = getAdapter(s.platform).isConfigured();
+      return {
+        ...s,
+        available: configured,
+        unavailableReason: getAdapter(s.platform).unavailableReason(),
+        state: deriveState(s, configured, storageReady),
+        setup: providerSetup(s.platform),
+      };
+    });
     res.json({
       accounts: enriched,
-      storageReady: ConnectionService.isEncryptionReady(),
-      notice: ConnectionService.isEncryptionReady()
+      storageReady,
+      notice: storageReady
         ? null
         : 'Secure token storage is not configured on this server. Please contact your administrator.',
     });
@@ -97,6 +131,16 @@ connectionRouter.post('/:platform/connect', async (req: Request, res: Response) 
   if (!platform) return;
   const user = currentUser(req, res);
   if (!user) return;
+
+  // Unconfigured providers get a NORMAL 200 with an actionable `setup_required`
+  // action rather than a 503. The button stays clickable, the client gets the
+  // exact missing variable names, and no OAuth state row is created for a flow
+  // that could never start.
+  if (!getAdapter(platform).isConfigured()) {
+    res.json({ platform, action: 'setup_required', setup: providerSetup(platform) });
+    return;
+  }
+
   try {
     const result = await getAdapter(platform).start({ userId: user.id });
     if (result.kind === 'redirect') {
@@ -183,7 +227,7 @@ connectionRouter.use((_req: Request, res: Response) => {
  * It is defined last so every declaration above it is already initialised.
  */
 export const discordCallbackHandler: (req: Request, res: Response) => Promise<void> = async (req, res) => {
-  const appUrl = (process.env.APP_URL ?? '').trim().replace(/\/+$/, '');
+  const appUrl = appOrigin();
   const finish = (ok: boolean, message: string) =>
     res.redirect(`${appUrl}/?tab=connections&connect=${ok ? 'success' : 'error'}&message=${encodeURIComponent(message)}`);
 
@@ -227,7 +271,7 @@ export const discordCallbackHandler: (req: Request, res: Response) => Promise<vo
  * belongs to the session that opened the widget.
  */
 export const telegramCallbackHandler: (req: Request, res: Response) => Promise<void> = async (req, res) => {
-  const appUrl = (process.env.APP_URL ?? '').trim().replace(/\/+$/, '');
+  const appUrl = appOrigin();
   const finish = (ok: boolean, msg: string) =>
     res.redirect(`${appUrl}/?tab=connections&connect=${ok ? 'success' : 'error'}&message=${encodeURIComponent(msg)}`);
 
@@ -268,26 +312,85 @@ export const telegramCallbackHandler: (req: Request, res: Response) => Promise<v
  */
 connectionRouter.get('/discord/callback', discordCallbackHandler);
 /**
+ * EXPLAINS AN OAUTH ERROR INSTEAD OF DISGUISING IT
+ * ============================================================================
+ * THE BUG THIS FIXES
+ * The callback used to collapse every non-happy path into "did not return an
+ * authorization code." That is actively harmful: Google's consent screen returns
+ * `error=redirect_uri_mismatch` / `unauthorized_client` / `org_internal` WITHOUT
+ * a code, so a completely misconfigured app reported a vague message that sent
+ * the user hunting for a missing parameter that was never missing.
+ *
+ * These maps name the real cause and, where we can, the exact remedy. Provider
+ * error text is attacker-influenceable, so it is only ever used to pick a known
+ * key below — never rendered verbatim into the page.
+ *
+ * Nothing here logs or echoes `error_description`: it can contain a client id or
+ * a redirect URI, and echoing arbitrary provider text into a redirect URL is an
+ * open-redirect/XSS foot-gun.
+ */
+function describeProviderError(platform: Platform, code: string, appUrl: string): string {
+  const label = PLATFORM_LABELS[platform];
+
+  if (code === 'access_denied' || code === 'user_cancelled') {
+    return `Authorization was cancelled. ${label} was not connected.`;
+  }
+  // Google sends redirect_uri_mismatch when the registered URI differs at all.
+  // This is by far the most common misconfiguration, so it gets the exact URI.
+  if (code === 'redirect_uri_mismatch') {
+    return `${label} rejected the redirect URI. Add this exact URI to your app's authorised redirect URIs, including the port: ${appUrl}/api/connections/${platform.toLowerCase()}/callback`;
+  }
+  // Google shows this when an "Internal" consent screen is used with a consumer
+  // account that is not in the Workspace organisation.
+  if (code === 'org_internal' || code === 'access_denied_org') {
+    return `${label} is restricted to your organisation. In Google Cloud Console set the consent screen user type to EXTERNAL, then add your email under Test users.`;
+  }
+  if (code === 'unauthorized_client' || code === 'invalid_client') {
+    return `${label} rejected this OAuth client. Check that the client is a Web application and that its authorised redirect URIs include the exact callback for this server.`;
+  }
+  if (code === 'invalid_scope') {
+    return `${label} rejected the requested permissions. The app may need the Gmail API enabled, or Advanced Access for these scopes.`;
+  }
+  if (code === 'interaction_required' || code === 'consent_required') {
+    return `${label} needs you to approve access again. Please retry the connection.`;
+  }
+  if (code === 'invalid_request') {
+    return `${label} rejected the authorization request. Please retry the connection.`;
+  }
+  if (code === 'invalid_grant' || code === 'bad_verification_code') {
+    return `${label} authorization could not be exchanged. Please start the connection again.`;
+  }
+  return `${label} reported an authorization error (${code}). Please check the provider setup and try again.`;
+}
+
+/**
  * Shared shape of an OAuth redirect landing: Meta and Google both return here as
  * a top-level GET navigation, so the handler cannot rely on a JSON session call.
  */
 function oauthRedirectHandler(platform: Platform, successCopy: string) {
   return async (req: Request, res: Response): Promise<void> => {
-    const appUrl = (process.env.APP_URL ?? '').trim().replace(/\/+$/, '');
+    const appUrl = appOrigin();
     const finish = (ok: boolean, message: string) =>
       res.redirect(`${appUrl}/?tab=connections&connect=${ok ? 'success' : 'error'}&message=${encodeURIComponent(message)}`);
 
-    // The user may decline consent; surface that plainly instead of a generic error.
-    if (typeof req.query.error === 'string') {
-      const denied = req.query.error === 'access_denied';
-      finish(false, denied ? `Authorization was cancelled. ${PLATFORM_LABELS[platform]} was not connected.` : 'The provider reported an authorization error. Please try again.');
+    // The provider reporting an error is a DIFFERENT situation from returning no
+    // code at all. Google puts the real reason in `error`, so read it first —
+    // this is what turns the old misleading message into something actionable.
+    const providerError = typeof req.query.error === 'string' ? req.query.error : null;
+    if (providerError) {
+      finish(false, describeProviderError(platform, providerError, appUrl));
       return;
     }
 
     const code = typeof req.query.code === 'string' ? req.query.code : null;
     const state = typeof req.query.state === 'string' ? req.query.state : null;
     if (!code || !state) {
-      finish(false, `${PLATFORM_LABELS[platform]} did not return an authorization code.`);
+      // No error and no code means the URL was opened directly (bookmark, reload
+      // of a stale tab) rather than arriving from the provider.
+      finish(
+        false,
+        `${PLATFORM_LABELS[platform]} did not return an authorization code. This page is the end of the connection link — please press Connect again to start a new one.`,
+      );
       return;
     }
 

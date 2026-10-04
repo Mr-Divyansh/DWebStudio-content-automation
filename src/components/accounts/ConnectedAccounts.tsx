@@ -16,7 +16,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MessageCircle, Hash, Send, Check, Plug, Unplug, RefreshCw, ShieldCheck, AlertTriangle, Settings, Instagram, Mail } from 'lucide-react';
 import { api } from '../../lib/api';
-import type { ConnectedAccountItem, ConnectedPlatform } from '../../types';
+import { ProviderSetupModal } from './ProviderSetupModal';
+import type { ConnectedAccountItem, ConnectedPlatform, ConnectionState } from '../../types';
 
 const ICONS: Record<ConnectedPlatform, React.ElementType> = {
   INSTAGRAM: Instagram,
@@ -86,6 +87,10 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
   );
   const [expanded, setExpanded] = useState<ConnectedPlatform | null>(null);
   const telegramRef = useRef<HTMLDivElement | null>(null);
+  /** Which provider's setup modal is open, if any. */
+  const [setupFor, setSetupFor] = useState<ConnectedPlatform | null>(null);
+
+  const setupAccount = accounts.find((a) => a.platform === setupFor) ?? null;
 
   const load = useCallback(async () => {
     try {
@@ -104,6 +109,24 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
   }, [load]);
 
   /**
+   * Starts an official authorization flow, OR opens the setup modal when the
+   * server reports the provider is not configured.
+   *
+   * Returns null when setup was shown instead, so each caller can simply bail.
+   * This is what keeps every Connect button usable: a missing variable is never
+   * a dead end, it is a checklist.
+   */
+  const beginConnect = useCallback(async (platform: ConnectedPlatform) => {
+    const started = await api.startConnection(platform);
+    if (started.action === 'setup_required') {
+      setError(null);
+      setSetupFor(platform);
+      return null;
+    }
+    return started;
+  }, []);
+
+  /**
    * Runs Meta's Embedded Signup for Instagram or WhatsApp and posts the
    * resulting authorization code to our server for a verified exchange.
    * Shared by both because Meta's official flow is identical apart from the
@@ -111,7 +134,8 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
    */
   const runMetaEmbeddedSignup = useCallback(
     async (platform: 'INSTAGRAM' | 'WHATSAPP') => {
-      const started = await api.startConnection(platform);
+      const started = await beginConnect(platform);
+      if (!started) return false;
       if (started.action !== 'embedded_signup' || !started.payload) {
         throw new Error(`${platform === 'INSTAGRAM' ? 'Instagram' : 'WhatsApp'} sign-in is unavailable right now.`);
       }
@@ -137,8 +161,9 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
       });
 
       await api.completeConnection(platform, { code });
+      return true;
     },
-    [],
+    [beginConnect],
   );
 
   /* --------------------------------------------------------- Instagram (Meta) */
@@ -150,12 +175,14 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
       // Two official launch styles: an Embedded Signup popup when the admin has
       // configured a Facebook Login for Business config id, otherwise a plain
       // redirect to Meta's OAuth dialog. The server decides which one applies.
-      const started = await api.startConnection('INSTAGRAM');
+      const started = await beginConnect('INSTAGRAM');
+      if (!started) return;
       if (started.action === 'redirect' && started.url) {
         window.location.href = started.url;
         return;
       }
-      await runMetaEmbeddedSignup('INSTAGRAM');
+      const done = await runMetaEmbeddedSignup('INSTAGRAM');
+      if (!done) return;
       setMessage({ text: 'Instagram connected successfully.', ok: true });
       await load();
     } catch (err: any) {
@@ -164,7 +191,7 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
     } finally {
       setBusy(null);
     }
-  }, [load, runMetaEmbeddedSignup]);
+  }, [beginConnect, load, runMetaEmbeddedSignup]);
 
   /* ------------------------------------------------------- WhatsApp (Embedded Signup) */
 
@@ -172,7 +199,8 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
     setBusy('WHATSAPP');
     setError(null);
     try {
-      await runMetaEmbeddedSignup('WHATSAPP');
+      const done = await runMetaEmbeddedSignup('WHATSAPP');
+      if (!done) return;
       setMessage({ text: 'WhatsApp connected successfully.', ok: true });
       await load();
     } catch (err: any) {
@@ -189,7 +217,8 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
     setBusy('GMAIL');
     setError(null);
     try {
-      const started = await api.startConnection('GMAIL');
+      const started = await beginConnect('GMAIL');
+      if (!started) return;
       if (started.action !== 'redirect' || !started.url) {
         throw new Error('Gmail sign-in is unavailable right now.');
       }
@@ -200,7 +229,7 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
       setError(err?.message || 'Gmail could not be connected.');
       setBusy(null);
     }
-  }, []);
+  }, [beginConnect]);
 
   /* ------------------------------------------------------------ Discord (OAuth2) */
 
@@ -208,7 +237,8 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
     setBusy('DISCORD');
     setError(null);
     try {
-      const started = await api.startConnection('DISCORD');
+      const started = await beginConnect('DISCORD');
+      if (!started) return;
       if (started.action !== 'redirect' || !started.url) {
         throw new Error('Discord sign-in is unavailable right now.');
       }
@@ -219,7 +249,7 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
       setError(err?.message || 'Discord could not be connected.');
       setBusy(null);
     }
-  }, []);
+  }, [beginConnect]);
 
   /* ------------------------------------------------- Telegram (official Login Widget) */
 
@@ -227,11 +257,12 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
     setBusy('TELEGRAM');
     setError(null);
     try {
-      const started = await api.startConnection('TELEGRAM');
+      const started = await beginConnect('TELEGRAM');
+      if (!started) return;
       if (started.action !== 'widget' || !started.payload) {
         throw new Error('Telegram sign-in is unavailable right now.');
       }
-      const { bot_id: botId, bot_username: botUsername, state } = started.payload;
+      const { bot_username: botUsername, state } = started.payload;
 
       // The widget posts the signed payload to data-auth-url; our server then
       // verifies Telegram's HMAC. The bot TOKEN is never sent to the browser.
@@ -255,7 +286,7 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
     } finally {
       setBusy(null);
     }
-  }, []);
+  }, [beginConnect]);
 
   const disconnect = useCallback(
     async (platform: ConnectedPlatform) => {
@@ -303,9 +334,23 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
     TELEGRAM: connectTelegram,
   };
 
+  /**
+ * Visual treatment per state. Four honest outcomes instead of one greyed-out
+ * button: connected, ready, authorization failed, and setup required.
+ */
+const STATE_BADGE: Record<ConnectionState, { label: string; className: string }> = {
+  CONNECTED: { label: 'Connected', className: 'text-[#7EE787] bg-[#152E20] border-[#2A5A34]' },
+  READY: { label: 'Ready to connect', className: 'text-[#6FB2FF] bg-[#142640] border-[#2F7EF2]/40' },
+  AUTHORIZATION_FAILED: { label: 'Authorization failed', className: 'text-[#FFD166] bg-[#2A2315] border-[#8A6D1E]/50' },
+  SETUP_REQUIRED: { label: 'Setup required', className: 'text-[#FFD166] bg-[#2A2315] border-[#5A4A20]' },
+  UNAVAILABLE: { label: 'Unavailable', className: 'text-[#FFB4B4] bg-[#2E1A1A] border-[#5A2A2A]' },
+};
+
   const renderCard = (account: ConnectedAccountItem) => {
     const Icon = ICONS[account.platform];
     const isBusy = busy === account.platform;
+    const state = account.state ?? (account.connected ? 'CONNECTED' : account.available ? 'READY' : 'SETUP_REQUIRED');
+    const badge = STATE_BADGE[state];
 
     return (
       <div
@@ -323,15 +368,11 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-sm font-bold text-[#F4F1EA]">{account.label}</h3>
-              {account.connected ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded border text-[#7EE787] bg-[#152E20] border-[#2A5A34]">
-                  <Check className="w-3 h-3" /> Connected
-                </span>
-              ) : (
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded border text-[#8C98A9] bg-[#141A22] border-[#252F3C]">
-                  Not connected
-                </span>
-              )}
+              <span className={`inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${badge.className}`}>
+                {state === 'CONNECTED' && <Check className="w-3 h-3" />}
+                {state === 'SETUP_REQUIRED' && <Settings className="w-3 h-3" />}
+                {badge.label}
+              </span>
             </div>
             <p className="text-[11px] text-[#8C98A9] mt-0.5">{PLATFORM_PURPOSE[account.platform]}</p>
             {account.connected && (
@@ -343,6 +384,12 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
             )}
             {!account.connected && account.lastError && (
               <p className="text-[10px] text-[#FFD166] mt-1">{account.lastError}</p>
+            )}
+            {state === 'SETUP_REQUIRED' && !account.lastError && (
+              <p className="text-[10px] text-[#8C98A9] mt-1">Missing: {account.setup.missing.join(', ')}</p>
+            )}
+            {state === 'UNAVAILABLE' && serverNotice && (
+              <p className="text-[10px] text-[#FFB4B4] mt-1">{serverNotice}</p>
             )}
           </div>
         </div>
@@ -365,15 +412,38 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
                 <Unplug className="w-3.5 h-3.5" /> Disconnect
               </button>
             </>
+          ) : state === 'SETUP_REQUIRED' ? (
+            /* Not dead: "Setup" opens the checklist of exactly what is missing. */
+            <button
+              onClick={() => setSetupFor(account.platform)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#2A2315] hover:bg-[#332B18] border border-[#5A4A20] text-[#FFD166] text-[11px] font-bold transition-colors cursor-pointer"
+            >
+              <Settings className="w-3.5 h-3.5" /> Setup
+            </button>
           ) : (
+            /* READY, AUTHORIZATION_FAILED (Retry) and UNAVAILABLE (View details). */
             <button
               onClick={connectHandler[account.platform]}
-              disabled={isBusy || !account.available || !storageReady}
-              title={!account.available ? account.unavailableReason || undefined : undefined}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#2F7EF2] hover:bg-[#2568cc] text-white text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+              disabled={isBusy}
+              title={state === 'UNAVAILABLE' ? serverNotice || undefined : undefined}
+              className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-[11px] font-bold disabled:opacity-40 transition-colors cursor-pointer ${
+                state === 'AUTHORIZATION_FAILED'
+                  ? 'bg-[#8A6D1E] hover:bg-[#7A5F19]'
+                  : state === 'UNAVAILABLE'
+                    ? 'bg-[#2E1A1A] hover:bg-[#3A2020] border border-[#5A2A2A]'
+                    : 'bg-[#2F7EF2] hover:bg-[#2568cc]'
+              }`}
             >
-              {isBusy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plug className="w-3.5 h-3.5" />}
-              Connect
+              {isBusy ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : state === 'AUTHORIZATION_FAILED' ? (
+                <RefreshCw className="w-3.5 h-3.5" />
+              ) : state === 'UNAVAILABLE' ? (
+                <AlertTriangle className="w-3.5 h-3.5" />
+              ) : (
+                <Plug className="w-3.5 h-3.5" />
+              )}
+              {state === 'AUTHORIZATION_FAILED' ? 'Retry' : state === 'UNAVAILABLE' ? 'View details' : 'Connect'}
             </button>
           )}
         </div>
@@ -420,6 +490,14 @@ export const ConnectedAccounts: React.FC<Props> = ({ initialMessage, initialSucc
       )}
 
       <div className="space-y-3">{accounts.map(renderCard)}</div>
+
+      {/* One reusable setup modal serves every provider. */}
+      <ProviderSetupModal
+        label={setupAccount?.label ?? PLATFORM_FALLBACK_LABEL[setupFor ?? 'GMAIL']}
+        setup={setupAccount?.setup}
+        open={setupFor !== null}
+        onClose={() => setSetupFor(null)}
+      />
 
       <p className="text-[10px] text-[#5A6675] flex items-center gap-1.5">
         <ShieldCheck className="w-3 h-3 text-[#2F7EF2]" />
